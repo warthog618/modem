@@ -25,13 +25,7 @@ import (
 
 func TestNew(t *testing.T) {
 	// mocked
-	cmdSet := map[string][]string{
-		// for init
-		string(27) + "\r\n\r\n": {"\r\n"},
-		"ATZ\r\n":               {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
-	}
-	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
+	mm := mockModem{cmdSet: nil, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
 	a := New(&mm)
 	if a == nil {
@@ -68,6 +62,19 @@ func TestInit(t *testing.T) {
 		t.Error("modem closed")
 	default:
 	}
+	// residual OKs
+	mm.r <- []byte("\r\nOK\r\nOK\r\n")
+	err = a.Init(ctx)
+	if err != nil {
+		t.Error("init failed", err)
+	}
+	// residual ERRORs
+	mm.r <- []byte("\r\nERROR\r\nERROR\r\n")
+	err = a.Init(ctx)
+	if err != nil {
+		t.Error("init failed", err)
+	}
+
 }
 
 func TestInitFailure(t *testing.T) {
@@ -117,14 +124,11 @@ func TestCloseInInitTimeout(t *testing.T) {
 
 func TestCommand(t *testing.T) {
 	cmdSet := map[string][]string{
-		string(27) + "\r\n\r\n": {"\r\n"},
-		"AT\r\n":                {"OK\r\n"},
-		"ATZ\r\n":               {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
-		"ATPASS\r\n":            {"OK\r\n"},
-		"ATINFO=1\r\n":          {"info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
-		"ATCMS\r\n":             {"+CMS ERROR: 204\r\n"},
-		"ATCME\r\n":             {"+CME ERROR: 42\r\n"},
+		"AT\r\n":       {"OK\r\n"},
+		"ATPASS\r\n":   {"OK\r\n"},
+		"ATINFO=1\r\n": {"info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
+		"ATCMS\r\n":    {"+CMS ERROR: 204\r\n"},
+		"ATCME\r\n":    {"+CME ERROR: 42\r\n"},
 	}
 	m, mm := setupModem(t, cmdSet)
 	defer teardownModem(mm)
@@ -314,15 +318,12 @@ func checkInfo(expected []string, received []string) error {
 
 func TestSMSCommand(t *testing.T) {
 	cmdSet := map[string][]string{
-		string(27) + "\r\n\r\n": {""},
-		"ATZ\r\n":               {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
-		"ATCMS\r":               {"\r\n+CMS ERROR: 204\r\n"},
-		"ATCME\r":               {"\r\n+CME ERROR: 42\r\n"},
-		"ATSMS\r":               {"\n>"},
-		"ATSMS2\r":              {"\n> "},
-		"info" + string(26):     {"info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
-		"sms+" + string(26):     {"\r\n", "info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
+		"ATCMS\r":           {"\r\n+CMS ERROR: 204\r\n"},
+		"ATCME\r":           {"\r\n+CME ERROR: 42\r\n"},
+		"ATSMS\r":           {"\n>"},
+		"ATSMS2\r":          {"\n> "},
+		"info" + string(26): {"info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
+		"sms+" + string(26): {"\r\n", "info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
 	}
 	m, mm := setupModem(t, cmdSet)
 	defer teardownModem(mm)
@@ -426,10 +427,7 @@ func TestSMSCommand(t *testing.T) {
 func TestSMSCommandClosedPrePDU(t *testing.T) {
 	// test case where modem closes between SMS prompt and PDU.
 	cmdSet := map[string][]string{
-		string(27) + "\r\n\r\n": {""},
-		"ATZ\r\n":               {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
-		"ATSMS\r":               {"\n>"},
+		"ATSMS\r": {"\n>"},
 	}
 	m, mm := setupModem(t, cmdSet)
 	defer teardownModem(mm)
@@ -459,12 +457,7 @@ func TestSMSCommandClosedPrePDU(t *testing.T) {
 }
 
 func TestAddIndication(t *testing.T) {
-	cmdSet := map[string][]string{
-		string(27) + "\r\n\r\n": {""},
-		"ATZ\r\n":               {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
-	}
-	m, mm := setupModem(t, cmdSet)
+	m, mm := setupModem(t, nil)
 	defer teardownModem(mm)
 
 	c, err := m.AddIndication("notify", 0)
@@ -533,12 +526,7 @@ func TestAddIndication(t *testing.T) {
 }
 
 func TestCancelIndication(t *testing.T) {
-	cmdSet := map[string][]string{
-		string(27) + "\r\n\r\n": {""},
-		"ATZ\r\n":               {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
-	}
-	m, mm := setupModem(t, cmdSet)
+	m, mm := setupModem(t, nil)
 	defer teardownModem(mm)
 
 	c, err := m.AddIndication("notify", 0)
@@ -573,12 +561,7 @@ func TestCancelIndication(t *testing.T) {
 }
 
 func TestAddIndicationClose(t *testing.T) {
-	cmdSet := map[string][]string{
-		string(27) + "\r\n\r\n": {""},
-		"ATZ\r\n":               {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
-	}
-	m, mm := setupModem(t, cmdSet)
+	m, mm := setupModem(t, nil)
 	defer teardownModem(mm)
 
 	c, err := m.AddIndication("foo:", 2)
@@ -665,14 +648,6 @@ func (m *mockModem) Close() error {
 }
 
 func setupModem(t *testing.T, cmdSet map[string][]string) (*AT, *mockModem) {
-	if cmdSet == nil {
-		cmdSet = map[string][]string{
-			// for init
-			string(27) + "\r\n\r\n": {"\r\n"},
-			"ATZ\r\n":               {"OK\r\n"},
-			"AT^CURC=0\r\n":         {"OK\r\n"},
-		}
-	}
 	mm := &mockModem{cmdSet: cmdSet, echo: true, r: make(chan []byte, 10)}
 	var modem io.ReadWriter = mm
 	debug := false // set to true to enable tracing of the flow to the mockModem.
@@ -685,11 +660,6 @@ func setupModem(t *testing.T, cmdSet map[string][]string) (*AT, *mockModem) {
 	a := New(modem)
 	if a == nil {
 		t.Fatal("new failed")
-	}
-	ctx := context.Background()
-	err := a.Init(ctx)
-	if err != nil {
-		t.Fatal("Init failed", err)
 	}
 	return a, mm
 }

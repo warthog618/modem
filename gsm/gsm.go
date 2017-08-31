@@ -29,6 +29,7 @@ func New(modem io.ReadWriter) *GSM {
 	return &GSM{at.New(modem), modeText, ""}
 }
 
+// Init initialises the GSM modem.
 func (g *GSM) Init(ctx context.Context) error {
 	if err := g.AT.Init(ctx); err != nil {
 		return err
@@ -38,17 +39,20 @@ func (g *GSM) Init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	l := strings.Split(info.TrimPrefix(i[0], "+GCAP"), ",")
+	if len(i) != 1 {
+		return ErrNotGSMCapable
+	}
 	capabilities := make(map[string]bool)
-	for _, cap := range l {
+	caps := strings.Split(info.TrimPrefix(i[0], "+GCAP"), ",")
+	for _, cap := range caps {
 		capabilities[cap] = true
 	}
 	if !capabilities["+CGSM"] {
 		return ErrNotGSMCapable
 	}
 	cmds := []string{
-		"+CMEE=2",
-		"+CMGF=1", // text mode for now, later check if supports PDU and switch
+		"+CMEE=2", // textual errors
+		"+CMGF=1", // text mode for now, later check if supports PDU and switch?
 	}
 	for _, cmd := range cmds {
 		_, err := g.Command(ctx, cmd)
@@ -62,7 +66,7 @@ func (g *GSM) Init(ctx context.Context) error {
 // SendSMS sends an SMS message to the number.
 // The mr is returned on success, else an error.
 // In text mode the message must be a message string.
-// In PDU mode the message may be a message string OR a hex coded SMS PDU.
+// In PDU mode the message may be a message string OR a hex coded SMS PDU. (not currently supported)
 func (g *GSM) SendSMS(ctx context.Context, number string, message string) (string, error) {
 	i, err := g.SMSCommand(ctx, "+CMGS=\""+number+"\"", message)
 	if err != nil {

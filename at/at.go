@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 // AT represents a modem that can be managed using AT commands.
@@ -67,7 +68,7 @@ func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
 
 // AddIndication adds a handler for a set of lines begining with the prefixed
 // line and the following trailing lines.
-// Each set lines is returned via the returned channel.
+// Each set of lines is returned via the returned channel.
 // The return channel is closed when the AT closes.
 func (a *AT) AddIndication(prefix string, trailingLines int) (<-chan []string, error) {
 	done := make(chan chan []string)
@@ -119,15 +120,8 @@ func (a *AT) CancelIndication(prefix string) {
 func (a *AT) Init(ctx context.Context) error {
 	// escape any outstanding SMS operations then CR to clear the command buffer
 	a.modem.Write([]byte(string(27) + "\r\n\r\n"))
-	// drain the rx buffer
-Loop:
-	for {
-		select {
-		case <-a.cLines:
-		default:
-			break Loop
-		}
-	}
+	// allow time for response, or at least any residual OK, to propagate and be disacarded.
+	<-time.After(20 * time.Millisecond)
 	cmds := []string{
 		"Z",       // reset to factory defaults (also clears the escape from the rx buffer)
 		"^CURC=0", // disable general indications ^XXXX
