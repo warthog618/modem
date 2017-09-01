@@ -39,13 +39,14 @@ func (g *GSM) Init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(i) != 1 {
-		return ErrNotGSMCapable
-	}
 	capabilities := make(map[string]bool)
-	caps := strings.Split(info.TrimPrefix(i[0], "+GCAP"), ",")
-	for _, cap := range caps {
-		capabilities[cap] = true
+	for _, l := range i {
+		if info.HasPrefix(l, "+GCAP") {
+			caps := strings.Split(info.TrimPrefix(l, "+GCAP"), ",")
+			for _, cap := range caps {
+				capabilities[cap] = true
+			}
+		}
 	}
 	if !capabilities["+CGSM"] {
 		return ErrNotGSMCapable

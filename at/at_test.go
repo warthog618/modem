@@ -55,7 +55,7 @@ func TestInit(t *testing.T) {
 	ctx := context.Background()
 	err := a.Init(ctx)
 	if err != nil {
-		t.Fatal("Init failed", err)
+		t.Fatal("unexpected error:", err)
 	}
 	select {
 	case <-a.Closed():
@@ -118,7 +118,7 @@ func TestCloseInInitTimeout(t *testing.T) {
 	defer cancel()
 	err := a.Init(ctx)
 	if err != context.DeadlineExceeded {
-		t.Error("init failed to timeout", err)
+		t.Error("failed to timeout", err)
 	}
 }
 
@@ -136,37 +136,37 @@ func TestCommand(t *testing.T) {
 	// empty req (AT)
 	info, err := m.Command(ctx, "")
 	if err != nil {
-		t.Error("Empty command failed")
+		t.Error("unexpected error:", err)
 	}
 	if info != nil {
-		t.Error("Empty command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// non-empty request
 	info, err = m.Command(ctx, "PASS")
 	if err != nil {
-		t.Error("Non-empty command failed")
+		t.Error("unexpected error:", err)
 	}
 	if info != nil {
-		t.Error("Non-empty command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// non-empty info
 	info, err = m.Command(ctx, "INFO=1")
 	if err != nil {
-		t.Error("Info command failed")
+		t.Error("unexpected error:", err)
 	}
 	if info == nil {
-		t.Error("Info command didn't return info")
+		t.Error("didn't return info")
 	}
 
 	// ERROR
 	info, err = m.Command(ctx, "ERR")
 	if err != ErrError {
-		t.Error("Error command didn't error")
+		t.Error("unexpected error:", err)
 	}
 	if info != nil {
-		t.Error("Error command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// CMS Error
@@ -174,17 +174,19 @@ func TestCommand(t *testing.T) {
 	if err != nil {
 		cms, ok := err.(CMSError)
 		if !ok {
-			t.Error("CMSError command didn't error")
+			t.Error("not CMS error:", err)
 		}
 		if cms != "204" {
-			t.Error("CMSError command didn't error expected value. got '" + cms + "' expected '204'")
+			t.Error("didn't error expected value. got '" + cms + "' expected '204'")
 		}
 		if cms.Error() != "CMS Error: 204" {
-			t.Error("CMSError not formatted as expected - got ", cms)
+			t.Error("not formatted as expected - got ", cms)
 		}
+	} else {
+		t.Error("didn't error")
 	}
 	if info != nil {
-		t.Error("CMSError command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// CME Error
@@ -192,17 +194,19 @@ func TestCommand(t *testing.T) {
 	if err != nil {
 		cme, ok := err.(CMEError)
 		if !ok {
-			t.Error("CMEError command didn't error")
+			t.Error("not CME error:", err)
 		}
 		if cme != "42" {
-			t.Error("CMEError command didn't error expected value. got '" + cme + "' expected '42'")
+			t.Error("didn't error expected value. got '" + cme + "' expected '42'")
 		}
 		if cme.Error() != "CME Error: 42" {
-			t.Error("CMEError not formatted as expected - got ", cme)
+			t.Error("not formatted as expected - got ", cme)
 		}
+	} else {
+		t.Error("didn't error")
 	}
 	if info != nil {
-		t.Error("CMSError command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// no echo
@@ -210,39 +214,39 @@ func TestCommand(t *testing.T) {
 	// no-echo non-empty info
 	info, err = m.Command(ctx, "INFO=1")
 	if err != nil {
-		t.Error("Info command failed")
+		t.Error("unexpected error:", err)
 	}
 	if info == nil {
-		t.Error("Info command didn't return info")
+		t.Error("didn't return info")
 	}
 
 	// closed before response
 	mm.closeOnWrite = true
 	info, err = m.Command(ctx, "NULL")
 	if err == nil {
-		t.Error("closed before response didn't return error")
+		t.Error("didn't error")
 	}
 	if info != nil {
-		t.Error("closed before response returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// closed before request
 	info, err = m.Command(ctx, "PASS")
 	if err == nil {
-		t.Error("closed before request didn't return error")
+		t.Error("didn't error")
 	}
 	if info != nil {
-		t.Error("closed before request returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// write Error
 	mm.errOnWrite = true
 	info, err = m.Command(ctx, "PASS")
 	if err == nil {
-		t.Error("Write error command didn't return error")
+		t.Error("didn't error")
 	}
 	if info != nil {
-		t.Error("Write error command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 }
 
@@ -268,21 +272,21 @@ func TestCommandClosedOnWrite(t *testing.T) {
 	ctx := context.Background()
 	go func() {
 		info, err := m.Command(ctx, "PASS")
-		if err == nil {
-			t.Error("closed before request didn't return error")
+		if err.Error() != "closed" { // could be ErrClosed or write error from modem - both of which map to "closed" in this case
+			t.Error("unexpected error:", err)
 		}
 		if info != nil {
-			t.Error("closed before request returned info:", info)
+			t.Error("returned unexpected info:", info)
 		}
 		close(done)
 	}()
 	// closed before request
 	info, err := m.Command(ctx, "PASS")
-	if err == nil {
-		t.Error("closed before request didn't return error")
+	if err.Error() != "closed" { // could be ErrClosed or write error from modem - both of which map to "closed" in this case
+		t.Error("unexpected error:", err)
 	}
 	if info != nil {
-		t.Error("closed before request returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 	<-done
 }
@@ -295,11 +299,11 @@ func TestCommandClosedPreWrite(t *testing.T) {
 	ctx := context.Background()
 	// closed before request
 	info, err := m.Command(ctx, "PASS")
-	if err == nil {
-		t.Error("closed before request didn't return error")
+	if err.Error() != "closed" {
+		t.Error("unexpected error:", err)
 	}
 	if info != nil {
-		t.Error("closed before request returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 }
 
@@ -332,10 +336,10 @@ func TestSMSCommand(t *testing.T) {
 	// Error
 	info, err := m.SMSCommand(ctx, "ERR", "errsms")
 	if err != ErrError {
-		t.Error("Error command didn't error")
+		t.Error("unexpected error:", err)
 	}
 	if info != nil {
-		t.Error("Error command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// CMS Error
@@ -343,14 +347,16 @@ func TestSMSCommand(t *testing.T) {
 	if err != nil {
 		cms, ok := err.(CMSError)
 		if !ok {
-			t.Error("CMSError command didn't error")
+			t.Error("not CMS error:", err)
 		}
 		if cms != "204" {
-			t.Error("CMSError command didn't error expected value. got '" + cms + "' expected '204'")
+			t.Error("didn't error expected value. got '" + cms + "' expected '204'")
 		}
+	} else {
+		t.Error("didn't error")
 	}
 	if info != nil {
-		t.Error("CMSError command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// CME Error
@@ -358,22 +364,25 @@ func TestSMSCommand(t *testing.T) {
 	if err != nil {
 		cme, ok := err.(CMEError)
 		if !ok {
-			t.Error("CMEError command didn't error")
+			t.Error("not CME error:", err)
 		}
 		if cme != "42" {
-			t.Error("CMEError command didn't error expected value. got '" + cme + "' expected '42'")
+			t.Error("didn't error expected value. got '" + cme + "' expected '42'")
 		}
+	} else {
+		t.Error("didn't error")
 	}
 	if info != nil {
-		t.Error("CMSError command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
+
 	// OK
 	info, err = m.SMSCommand(ctx, "SMS", "sms+")
 	if err != nil {
-		t.Error("SMS command failed")
+		t.Error("unexpected error:", err)
 	}
 	if info == nil {
-		t.Error("SMS command returned nil info")
+		t.Error("returned nil info")
 	} else {
 		if err = checkInfo(cmdSet["sms+"+string(26)][1:len(cmdSet["sms+"+string(26)])-2], info); err != nil {
 			t.Error(err)
@@ -384,10 +393,10 @@ func TestSMSCommand(t *testing.T) {
 	mm.echo = false
 	info, err = m.SMSCommand(ctx, "SMS2", "info")
 	if err != nil {
-		t.Error("SMS command failed")
+		t.Error("unexpected error:", err)
 	}
 	if info == nil {
-		t.Error("SMS command returned info:", info)
+		t.Error("returned nil info")
 	} else {
 		if err = checkInfo(cmdSet["info"+string(26)][0:len(cmdSet["info"+string(26)])-2], info); err != nil {
 			t.Error(err)
@@ -398,29 +407,29 @@ func TestSMSCommand(t *testing.T) {
 	mm.errOnWrite = true
 	info, err = m.SMSCommand(ctx, "EoW", "errOnWrite")
 	if err == nil {
-		t.Error("SMS command didn't return write error")
+		t.Error("didn't error")
 	}
 	if info != nil {
-		t.Error("SMS command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// closed before response
 	mm.closeOnWrite = true
 	info, err = m.SMSCommand(ctx, "CoW", "closeOnWrite")
 	if err == nil {
-		t.Error("SMS command didn't return write error")
+		t.Error("didn't error")
 	}
 	if info != nil {
-		t.Error("SMS command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 
 	// closed before request
 	info, err = m.SMSCommand(ctx, "C", "closed")
-	if err == nil {
-		t.Error("SMS command didn't return write error")
+	if err != ErrClosed {
+		t.Error("unexpected error:", err)
 	}
 	if info != nil {
-		t.Error("SMS command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 }
 
@@ -439,19 +448,19 @@ func TestSMSCommandClosedPrePDU(t *testing.T) {
 	go func() {
 		info, err := m.SMSCommand(ctx, "SMS", "closed")
 		if err == nil {
-			t.Error("SMS command didn't return write error")
+			t.Error("didn't error")
 		}
 		if info != nil {
-			t.Error("SMS command returned info:", info)
+			t.Error("returned unexpected info:", info)
 		}
 		close(done)
 	}()
 	info, err := m.SMSCommand(ctx, "SMS", "closed")
 	if err == nil {
-		t.Error("SMS command didn't return write error")
+		t.Error("didn't error")
 	}
 	if info != nil {
-		t.Error("SMS command returned info:", info)
+		t.Error("returned unexpected info:", info)
 	}
 	<-done
 }
@@ -462,7 +471,7 @@ func TestAddIndication(t *testing.T) {
 
 	c, err := m.AddIndication("notify", 0)
 	if err != nil {
-		t.Errorf("returned unexected error %v", err)
+		t.Error("unexpected error:", err)
 	}
 	if c == nil {
 		t.Fatalf("didn't return channel")
@@ -483,14 +492,14 @@ func TestAddIndication(t *testing.T) {
 	}
 	c2, err := m.AddIndication("notify", 0)
 	if err == nil {
-		t.Error("failed to prevent re-adding")
+		t.Error("didn't error")
 	}
 	if c2 != nil {
 		t.Errorf("returned channel on error")
 	}
 	c2, err = m.AddIndication("foo", 2)
 	if err != nil {
-		t.Errorf("returned unexected error %v", err)
+		t.Error("unexpected error:", err)
 	}
 	if c2 == nil {
 		t.Fatalf("didn't return channel")
@@ -516,8 +525,8 @@ func TestAddIndication(t *testing.T) {
 		t.Error("channel 2 still open")
 	}
 	c2, err = m.AddIndication("foo", 2)
-	if err == nil {
-		t.Errorf("allowed add while closed")
+	if err != ErrClosed {
+		t.Error("unexpected error:", err)
 	}
 	if c2 != nil {
 		t.Errorf("returned channel on error")
@@ -531,14 +540,14 @@ func TestCancelIndication(t *testing.T) {
 
 	c, err := m.AddIndication("notify", 0)
 	if err != nil {
-		t.Errorf("returned unexected error %v", err)
+		t.Error("unexpected error:", err)
 	}
 	if c == nil {
 		t.Fatalf("didn't return channel")
 	}
 	c2, err := m.AddIndication("foo", 2)
 	if err != nil {
-		t.Errorf("returned unexected error %v", err)
+		t.Error("unexpected error:", err)
 	}
 	if c2 == nil {
 		t.Fatalf("didn't return channel")
@@ -566,7 +575,7 @@ func TestAddIndicationClose(t *testing.T) {
 
 	c, err := m.AddIndication("foo:", 2)
 	if err != nil {
-		t.Errorf("returned unexected error %v", err)
+		t.Error("unexpected error:", err)
 	}
 	if c == nil {
 		t.Fatalf("didn't return channel")

@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/trace"
 )
 
@@ -64,54 +65,56 @@ func TestInit(t *testing.T) {
 	// vanilla
 	err := g.Init(ctx)
 	if err != nil {
-		t.Error("init failed", err)
+		t.Error("unexpected error:", err)
 	}
+
 	// residual OKs
 	mm.r <- []byte("\r\nOK\r\nOK\r\n")
 	err = g.Init(ctx)
 	if err != nil {
-		t.Error("init failed", err)
+		t.Error("unexpected error:", err)
 	}
+
 	// residual ERRORs
 	mm.r <- []byte("\r\nERROR\r\nERROR\r\n")
 	err = g.Init(ctx)
 	if err != nil {
-		t.Error("init failed", err)
+		t.Error("unexpected error:", err)
+	}
+
+	// ignore cruft in response
+	cmdSet["AT+GCAP\r\n"] = []string{"blah\r\n", "+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"}
+	err = g.Init(ctx)
+	if err != nil {
+		t.Error("unexpected error:", err)
 	}
 
 	// init failure (CMEE)
 	cmdSet["AT+CMEE=2\r\n"] = []string{"ERROR\r\n"}
 	err = g.Init(ctx)
 	if err == nil {
-		t.Error("init succeeded")
+		t.Error("didn't error")
 	}
 
 	// GCAP req failure
 	cmdSet["AT+GCAP\r\n"] = []string{"ERROR\r\n"}
 	err = g.Init(ctx)
 	if err == nil {
-		t.Error("init succeeded")
-	}
-
-	// GCAP bad length
-	cmdSet["AT+GCAP\r\n"] = []string{"+GCAP: +DS,+ES\r\n", "blah\r\n", "OK\r\n"}
-	err = g.Init(ctx)
-	if err == nil {
-		t.Error("init succeeded")
+		t.Error("didn't error")
 	}
 
 	// Not GSM capable
 	cmdSet["AT+GCAP\r\n"] = []string{"+GCAP: +DS,+ES\r\n", "OK\r\n"}
 	err = g.Init(ctx)
-	if err == nil {
-		t.Error("init succeeded")
+	if err != ErrNotGSMCapable {
+		t.Error("unexpected error:", err)
 	}
 
 	// AT init failure
 	cmdSet["ATZ\r\n"] = []string{"ERROR\r\n"}
 	err = g.Init(ctx)
 	if err == nil {
-		t.Error("init succeeded")
+		t.Error("didn't error")
 	}
 
 	// restored command set to check failures above are not due to something else.
@@ -120,28 +123,22 @@ func TestInit(t *testing.T) {
 	cmdSet["AT+CMEE=2\r\n"] = []string{"OK\r\n"}
 	err = g.Init(ctx)
 	if err != nil {
-		t.Error("init failed", err)
+		t.Error("unexpected error:", err)
 	}
 
 	// cancelled
 	cctx, cancel := context.WithCancel(ctx)
 	cancel()
 	err = g.Init(cctx)
-	if err == nil {
-		t.Error("init succeeded")
-	}
 	if err != context.Canceled {
-		t.Error("init didn't fail with Canceled:", err)
+		t.Error("unexpected error:", err)
 	}
 
 	// timeout
 	cctx, cancel = context.WithTimeout(ctx, 0)
 	err = g.Init(cctx)
-	if err == nil {
-		t.Error("init succeeded")
-	}
 	if err != context.DeadlineExceeded {
-		t.Error("init didn't fail with DeadlineExceeded:", err)
+		t.Error("unexpected error:", err)
 	}
 	cancel()
 }
@@ -162,7 +159,7 @@ func TestSMSSend(t *testing.T) {
 	// OK
 	mr, err := g.SendSMS(ctx, "+123456789", "test message")
 	if err != nil {
-		t.Error("send returned error", err)
+		t.Error("unexpected error:", err)
 	}
 	if mr != "42" {
 		t.Errorf("expected mr '42', but got '%s'", mr)
@@ -170,12 +167,8 @@ func TestSMSSend(t *testing.T) {
 
 	// ERROR
 	mr, err = g.SendSMS(ctx, "+1234567890", "test message")
-	if err == nil {
-		t.Error("send succeeded")
-	} else {
-		if err.Error() != "ERROR" {
-			t.Errorf("expected error 'ERROR', but got '%s'", err)
-		}
+	if err != at.ErrError {
+		t.Error("unexpected error:", err)
 	}
 	if mr != "" {
 		t.Errorf("expected mr '', but got '%s'", mr)
@@ -184,7 +177,7 @@ func TestSMSSend(t *testing.T) {
 	// extra cruft
 	mr, err = g.SendSMS(ctx, "+123456789", "cruft test message")
 	if err != nil {
-		t.Error("send returned error", err)
+		t.Error("unexpected error:", err)
 	}
 	if mr != "43" {
 		t.Errorf("expected mr '43', but got '%s'", mr)
@@ -193,7 +186,7 @@ func TestSMSSend(t *testing.T) {
 	// malformed
 	mr, err = g.SendSMS(ctx, "+123456789", "malformed test message")
 	if err != ErrMalformedResponse {
-		t.Error("send returned unexpected error", err)
+		t.Error("unexpected error:", err)
 	}
 	if mr != "" {
 		t.Errorf("expected mr '', but got '%s'", mr)
@@ -203,11 +196,8 @@ func TestSMSSend(t *testing.T) {
 	cctx, cancel := context.WithCancel(ctx)
 	cancel()
 	mr, err = g.SendSMS(cctx, "+123456789", "test message")
-	if err == nil {
-		t.Error("send succeeded")
-	}
 	if err != context.Canceled {
-		t.Error("send didn't fail with canceled", err)
+		t.Error("unexpected error:", err)
 	}
 	if mr != "" {
 		t.Errorf("expected mr '', but got '%s'", mr)
@@ -216,11 +206,8 @@ func TestSMSSend(t *testing.T) {
 	// timeout
 	cctx, cancel = context.WithTimeout(ctx, 0)
 	mr, err = g.SendSMS(cctx, "+123456789", "test message")
-	if err == nil {
-		t.Error("send succeeded")
-	}
 	if err != context.DeadlineExceeded {
-		t.Error("send didn't fail with canceled", err)
+		t.Error("unexpected error:", err)
 	}
 	if mr != "" {
 		t.Errorf("expected mr '', but got '%s'", mr)
