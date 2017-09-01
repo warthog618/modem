@@ -10,7 +10,6 @@ import (
 type Trace struct {
 	rw   io.ReadWriter
 	l    *log.Logger
-	hex  bool
 	wfmt string
 	rfmt string
 }

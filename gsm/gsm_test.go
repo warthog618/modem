@@ -17,7 +17,6 @@ import (
 	"log"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/trace"
@@ -83,7 +82,7 @@ func TestInit(t *testing.T) {
 	}
 
 	// ignore cruft in response
-	cmdSet["AT+GCAP\r\n"] = []string{"blah\r\n", "+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"}
+	cmdSet["AT+GCAP\r\n"] = []string{"cruft\r\n", "+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"}
 	err = g.Init(ctx)
 	if err != nil {
 		t.Error("unexpected error:", err)
@@ -216,12 +215,9 @@ func TestSMSSend(t *testing.T) {
 }
 
 type mockModem struct {
-	cmdSet           map[string][]string
-	closeOnWrite     bool
-	closeOnSMSPrompt bool
-	errOnWrite       bool
-	echo             bool
-	closed           bool
+	cmdSet map[string][]string
+	echo   bool
+	closed bool
 	// The buffer emulating characters emitted by the modem.
 	r chan []byte
 }
@@ -242,16 +238,6 @@ func (m *mockModem) Write(p []byte) (n int, err error) {
 	if m.closed {
 		return 0, errors.New("closed")
 	}
-	if m.closeOnWrite {
-		// provide time for commands to be queued before closing...
-		time.Sleep(10 + time.Millisecond)
-		m.closeOnWrite = false
-		m.Close()
-		return len(p), nil
-	}
-	if m.errOnWrite {
-		return 0, errors.New("Write error")
-	}
 	if m.echo {
 		m.r <- p
 	}
@@ -264,11 +250,6 @@ func (m *mockModem) Write(p []byte) (n int, err error) {
 				continue
 			}
 			m.r <- []byte(l)
-			if m.closeOnSMSPrompt && len(l) > 1 && l[1] == '>' {
-				// provide time for commands to be queued before closing...
-				time.Sleep(10 + time.Millisecond)
-				m.Close()
-			}
 		}
 	}
 	return len(p), nil
