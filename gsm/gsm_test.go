@@ -13,8 +13,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/warthog618/modem/trace"
 )
 
 func TestNew(t *testing.T) {
@@ -118,23 +123,109 @@ func TestInit(t *testing.T) {
 		t.Error("init failed", err)
 	}
 
+	// cancelled
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	err = g.Init(cctx)
+	if err == nil {
+		t.Error("init succeeded")
+	}
+	if err != context.Canceled {
+		t.Error("init didn't fail with Canceled:", err)
+	}
+
+	// timeout
+	cctx, cancel = context.WithTimeout(ctx, 0)
+	err = g.Init(cctx)
+	if err == nil {
+		t.Error("init succeeded")
+	}
+	if err != context.DeadlineExceeded {
+		t.Error("init didn't fail with DeadlineExceeded:", err)
+	}
+	cancel()
 }
 
 func TestSMSSend(t *testing.T) {
 	// mocked
-	cmdSet := map[string][]string{}
-	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
-	defer teardownModem(&mm)
-	g := New(&mm)
-	if g == nil {
-		t.Fatal("New failed")
+	cmdSet := map[string][]string{
+		"AT+CMGS=\"+123456789\"\r":            {"\n>"},
+		"test message" + string(26):           {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
+		"cruft test message" + string(26):     {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
+		"malformed test message" + string(26): {"\r\n", "pad\r\n", "\r\nOK\r\n"},
 	}
+	g, mm := setupModem(t, cmdSet)
+	defer teardownModem(mm)
+
+	ctx := context.Background()
 
 	// OK
+	mr, err := g.SendSMS(ctx, "+123456789", "test message")
+	if err != nil {
+		t.Error("send returned error", err)
+	}
+	if mr != "42" {
+		t.Errorf("expected mr '42', but got '%s'", mr)
+	}
 
 	// ERROR
+	mr, err = g.SendSMS(ctx, "+1234567890", "test message")
+	if err == nil {
+		t.Error("send succeeded")
+	} else {
+		if err.Error() != "ERROR" {
+			t.Errorf("expected error 'ERROR', but got '%s'", err)
+		}
+	}
+	if mr != "" {
+		t.Errorf("expected mr '', but got '%s'", mr)
+	}
 
-	// bad length
+	// extra cruft
+	mr, err = g.SendSMS(ctx, "+123456789", "cruft test message")
+	if err != nil {
+		t.Error("send returned error", err)
+	}
+	if mr != "43" {
+		t.Errorf("expected mr '43', but got '%s'", mr)
+	}
+
+	// malformed
+	mr, err = g.SendSMS(ctx, "+123456789", "malformed test message")
+	if err != ErrMalformedResponse {
+		t.Error("send returned unexpected error", err)
+	}
+	if mr != "" {
+		t.Errorf("expected mr '', but got '%s'", mr)
+	}
+
+	// cancelled
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	mr, err = g.SendSMS(cctx, "+123456789", "test message")
+	if err == nil {
+		t.Error("send succeeded")
+	}
+	if err != context.Canceled {
+		t.Error("send didn't fail with canceled", err)
+	}
+	if mr != "" {
+		t.Errorf("expected mr '', but got '%s'", mr)
+	}
+
+	// timeout
+	cctx, cancel = context.WithTimeout(ctx, 0)
+	mr, err = g.SendSMS(cctx, "+123456789", "test message")
+	if err == nil {
+		t.Error("send succeeded")
+	}
+	if err != context.DeadlineExceeded {
+		t.Error("send didn't fail with canceled", err)
+	}
+	if mr != "" {
+		t.Errorf("expected mr '', but got '%s'", mr)
+	}
+	cancel()
 }
 
 type mockModem struct {
@@ -202,6 +293,23 @@ func (m *mockModem) Close() error {
 		close(m.r)
 	}
 	return nil
+}
+
+func setupModem(t *testing.T, cmdSet map[string][]string) (*GSM, *mockModem) {
+	mm := &mockModem{cmdSet: cmdSet, echo: true, r: make(chan []byte, 10)}
+	var modem io.ReadWriter = mm
+	debug := false // set to true to enable tracing of the flow to the mockModem.
+	if debug {
+		l := log.New(os.Stdout, "", log.LstdFlags)
+		tr := trace.New(modem, l)
+		//tr := trace.New(modem, l, trace.ReadFormat("r: %v"))
+		modem = tr
+	}
+	g := New(modem)
+	if g == nil {
+		t.Fatal("new failed")
+	}
+	return g, mm
 }
 
 func teardownModem(m *mockModem) {

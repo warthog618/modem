@@ -72,13 +72,21 @@ func (g *GSM) SendSMS(ctx context.Context, number string, message string) (strin
 	if err != nil {
 		return "", err
 	}
-	return info.TrimPrefix(i[0], "+CMGS"), nil
+	// parse response, ignoring any lines other than well-formed.
+	for _, l := range i {
+		if info.HasPrefix(l, "+CMGS") {
+			return info.TrimPrefix(l, "+CMGS"), nil
+		}
+	}
+	return "", ErrMalformedResponse
 }
 
 var (
 	// ErrNotGSMCapable indicates that the modem does not support the GSM
 	// command set, as determined from the GCAP response.
-	ErrNotGSMCapable = errors.New("gsm: modem is not GSM capable")
+	ErrNotGSMCapable = errors.New("modem is not GSM capable")
 	// ErrNotPINReady indicates the modem SIM card is not ready to perform operations.
-	ErrNotPINReady = errors.New("gsm: modem is not PIN Ready")
+	ErrNotPINReady = errors.New("modem is not PIN Ready")
+	// ErrMalformedResponse indicates the modem returned .
+	ErrMalformedResponse = errors.New("modem returned malformed response")
 )

@@ -128,10 +128,11 @@ func (a *AT) Init(ctx context.Context) error {
 	}
 	for _, cmd := range cmds {
 		_, err := a.Command(ctx, cmd)
-		if err != nil {
-			if err == context.DeadlineExceeded {
-				return err
-			}
+		switch err {
+		case nil:
+		case context.DeadlineExceeded, context.Canceled:
+			return err
+		default:
 			return fmt.Errorf("AT%s returned error %v", cmd, err)
 		}
 	}
