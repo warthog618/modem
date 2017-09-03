@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,13 +19,16 @@ import (
 // underlying modem becomes unknown.
 // Once closed the AT cannot be re-opened - it must be recreated.
 type AT struct {
-	cmdCh  chan func()
-	indCh  chan func()
-	closed chan struct{}
-	iLines chan string
-	cLines chan string
-	modem  io.ReadWriter
-	n      map[string]indication // only modified in nLoop
+	cmdCh   chan func()
+	indCh   chan func()
+	closed  chan struct{}
+	iLines  chan string
+	cLines  chan string
+	modem   io.ReadWriter
+	inds    map[string]indication // only modified in nLoop
+	wgmu    sync.Mutex            // covers guarded and wGuard
+	guarded bool
+	wGuard  <-chan time.Time
 }
 
 // New creates a new AT modem.
@@ -36,7 +40,7 @@ func New(modem io.ReadWriter) *AT {
 		iLines: make(chan string),
 		cLines: make(chan string),
 		closed: make(chan struct{}),
-		n:      make(map[string]indication),
+		inds:   make(map[string]indication),
 	}
 	go lineReader(a.modem, a.iLines)
 	go a.nLoop(a.indCh, a.iLines, a.cLines)
@@ -77,13 +81,13 @@ func (a *AT) AddIndication(prefix string, trailingLines int) (<-chan []string, e
 	case <-a.closed:
 		return nil, ErrClosed
 	case a.indCh <- func() {
-		if _, ok := a.n[prefix]; ok {
+		if _, ok := a.inds[prefix]; ok {
 			errs <- ErrIndicationExists
 			return
 		}
-		n := indication{prefix, trailingLines + 1, make(chan []string)}
-		a.n[prefix] = n
-		done <- n.c
+		i := indication{prefix, trailingLines + 1, make(chan []string)}
+		a.inds[prefix] = i
+		done <- i.c
 	}:
 		select {
 		case evtCh := <-done:
@@ -103,10 +107,10 @@ func (a *AT) CancelIndication(prefix string) {
 	case <-a.closed:
 		return
 	case a.indCh <- func() {
-		n, ok := a.n[prefix]
+		i, ok := a.inds[prefix]
 		if ok {
-			close(n.c)
-			delete(a.n, prefix)
+			close(i.c)
+			delete(a.inds, prefix)
 		}
 		close(done)
 	}:
@@ -116,12 +120,15 @@ func (a *AT) CancelIndication(prefix string) {
 
 // Init initialises the modem by escaping any outstanding SMS commands
 // and resetting the modem to factory defaults.
+// The Init is intended to be called after creation and before any other commands
+// are issued in order to get the modem into a known state.
 // This is a bare minimum init.
 func (a *AT) Init(ctx context.Context) error {
-	// escape any outstanding SMS operations then CR to clear the command buffer
+	// escape any outstanding SMS operations then CR to flush the command buffer
 	a.modem.Write([]byte(string(27) + "\r\n\r\n"))
 	// allow time for response, or at least any residual OK, to propagate and be disacarded.
-	<-time.After(20 * time.Millisecond)
+	a.startWriteGuard()
+
 	cmds := []string{
 		"Z",       // reset to factory defaults (also clears the escape from the rx buffer)
 		"^CURC=0", // disable general indications ^XXXX
@@ -133,7 +140,7 @@ func (a *AT) Init(ctx context.Context) error {
 		case context.DeadlineExceeded, context.Canceled:
 			return err
 		default:
-			return fmt.Errorf("AT%s returned error %v", cmd, err)
+			return fmt.Errorf("AT%s returned error '%v'", cmd, err)
 		}
 	}
 	return nil
@@ -194,7 +201,12 @@ func lineReader(m io.Reader, out chan string) {
 // Indication trailing lines are assumed to arrive in a contiguous
 // block immediately after the indication.
 func (a *AT) nLoop(cmds chan func(), in <-chan string, out chan string) {
-Loop:
+	defer func() {
+		for k, v := range a.inds {
+			close(v.c)
+			delete(a.inds, k)
+		}
+	}()
 	for {
 		select {
 		case cmd := <-cmds:
@@ -202,16 +214,16 @@ Loop:
 		case line, ok := <-in:
 			if !ok {
 				close(out)
-				break Loop
+				return
 			}
-			for k, v := range a.n {
+			for k, v := range a.inds {
 				if strings.HasPrefix(line, k) {
 					n := make([]string, v.totalLines)
 					n[0] = line
 					for i := 1; i < v.totalLines; i++ {
 						t, ok := <-in
 						if !ok {
-							break Loop
+							return
 						}
 						n[i] = t
 					}
@@ -222,13 +234,10 @@ Loop:
 			out <- line
 		}
 	}
-	for k, v := range a.n {
-		close(v.c)
-		delete(a.n, k)
-	}
 }
 
 func (a *AT) processReq(ctx context.Context, req request) response {
+	a.waitWriteGuard()
 	if err := a.writeCommand(req); err != nil {
 		return response{err: err}
 	}
@@ -237,6 +246,11 @@ func (a *AT) processReq(ctx context.Context, req request) response {
 	for {
 		select {
 		case <-ctx.Done():
+			if req.sms != nil {
+				// cancel outstanding SMS request
+				a.modem.Write([]byte(string(27) + "\r\n"))
+				a.startWriteGuard()
+			}
 			rsp.err = ctx.Err()
 			return rsp
 		case line, ok := <-a.cLines:
@@ -266,9 +280,38 @@ func (a *AT) processReq(ctx context.Context, req request) response {
 			case rxlSMSPrompt:
 				if req.sms != nil {
 					if err := a.writeSMS(*req.sms); err != nil {
+						// escape SMS
+						a.modem.Write([]byte(string(27) + "\r\n"))
+						a.startWriteGuard()
 						return response{err: err}
 					}
 				}
+			}
+		}
+	}
+}
+
+func (a *AT) startWriteGuard() {
+	a.wgmu.Lock()
+	a.guarded = true
+	a.wGuard = time.After(20 * time.Millisecond)
+	a.wgmu.Unlock()
+}
+
+func (a *AT) waitWriteGuard() {
+	a.wgmu.Lock()
+	defer a.wgmu.Unlock()
+	if a.guarded {
+		for {
+			select {
+			case _, ok := <-a.cLines:
+				if !ok {
+					return
+				}
+			case <-a.wGuard:
+				a.guarded = false
+				a.wGuard = nil
+				return
 			}
 		}
 	}
@@ -362,7 +405,7 @@ const (
 // received SMS message.
 // Indications are lines prefixed with a particular pattern,
 // and may include a number of trailing lines.
-// The matching lines are bundled into a slice and injected into the channel.
+// The matching lines are bundled into a slice and sent to the channel.
 type indication struct {
 	prefix     string
 	totalLines int

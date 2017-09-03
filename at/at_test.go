@@ -62,12 +62,14 @@ func TestInit(t *testing.T) {
 		t.Error("modem closed")
 	default:
 	}
+
 	// residual OKs
 	mm.r <- []byte("\r\nOK\r\nOK\r\n")
 	err = a.Init(ctx)
 	if err != nil {
 		t.Error("init failed", err)
 	}
+
 	// residual ERRORs
 	mm.r <- []byte("\r\nERROR\r\nERROR\r\n")
 	err = a.Init(ctx)
@@ -231,6 +233,7 @@ func TestCommand(t *testing.T) {
 	}
 
 	// closed before request
+	<-m.Closed()
 	info, err = m.Command(ctx, "PASS")
 	if err == nil {
 		t.Error("didn't error")
@@ -403,6 +406,17 @@ func TestSMSCommand(t *testing.T) {
 		}
 	}
 
+	// cancelled
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	info, err = m.SMSCommand(cctx, "SMS2", "info")
+	if err != context.Canceled {
+		t.Error("unexpected error:", err)
+	}
+	if info != nil {
+		t.Error("returned unexpected info:", info)
+	}
+
 	// write error
 	mm.errOnWrite = true
 	info, err = m.SMSCommand(ctx, "EoW", "errOnWrite")
@@ -424,13 +438,15 @@ func TestSMSCommand(t *testing.T) {
 	}
 
 	// closed before request
+	<-m.Closed()
 	info, err = m.SMSCommand(ctx, "C", "closed")
-	if err != ErrClosed {
-		t.Error("unexpected error:", err)
+	if err == nil {
+		t.Error("didn't error")
 	}
 	if info != nil {
 		t.Error("returned unexpected info:", info)
 	}
+
 }
 
 func TestSMSCommandClosedPrePDU(t *testing.T) {
@@ -662,8 +678,8 @@ func setupModem(t *testing.T, cmdSet map[string][]string) (*AT, *mockModem) {
 	debug := false // set to true to enable tracing of the flow to the mockModem.
 	if debug {
 		l := log.New(os.Stdout, "", log.LstdFlags)
-		//tr := trace.New(modem, l)
-		tr := trace.New(modem, l, trace.ReadFormat("r: %v"))
+		tr := trace.New(modem, l)
+		//tr := trace.New(modem, l, trace.ReadFormat("r: %v"))
 		modem = tr
 	}
 	a := New(modem)
