@@ -1,3 +1,4 @@
+// Package at provides a low level driver for AT modems.
 package at
 
 import (
@@ -54,7 +55,7 @@ func (a *AT) Closed() <-chan struct{} {
 }
 
 // Command issues the command to the modem and returns the result.
-// The command should NOT include the AT prefix, or \r\n suffix which is automatically added.
+// The command should NOT include the AT prefix, or <CR><LF> suffix which is automatically added.
 // The return value includes the info (the lines returned by the modem between the command and
 // the status line), and an error which is non-nil if the command did not complete successfully.
 func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
@@ -148,7 +149,7 @@ func (a *AT) Init(ctx context.Context) error {
 
 // SMSCommand issues an SMS command to the modem, and returns the result.
 // An SMS command is issued in two steps; first the command line:
-//   AT<command>\r
+//   AT<command><CR>
 // which the modem responds to with a ">" prompt, after which the SMS PDU is sent to the modem:
 //   <sms><Ctrl-Z>
 // The modem then completes the command as per other commands, such as those issued by Command.

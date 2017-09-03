@@ -1,3 +1,9 @@
+// waitsms waits for SMSs to be received by the modem, and dumps them to stdout.
+//
+// The output is currently in undecoded PDU format.
+//
+// This provides an example of using indications, as well as a test
+// that the library works with the modem.
 package main
 
 import (

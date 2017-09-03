@@ -1,3 +1,5 @@
+// Package trace provides a decorator for io.ReadWriter that logs all reads
+// and writes.
 package trace
 
 import (

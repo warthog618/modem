@@ -1,3 +1,8 @@
+// modeminfo collects and displays information relatied to the modem and its
+// current configuration.
+//
+// This serves as an example of how interact with a modem, as well as
+// providing information which may be useful for debugging.
 package main
 
 import (

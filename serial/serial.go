@@ -1,3 +1,5 @@
+// Package serial provides a serial port, which provides the io.ReadWriter interface,
+// that provides the connection between the at or gsm packages and the physcial modem.
 package serial
 
 import (

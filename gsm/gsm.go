@@ -1,3 +1,4 @@
+// Package gsm provides a driver for GSM modems.
 package gsm
 
 import (

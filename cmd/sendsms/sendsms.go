@@ -1,3 +1,7 @@
+// sendsms sends an SMS using the modem.
+//
+// This provides an example of using the SendSMS command, as well as a test
+// that the library works with the modem.
 package main
 
 import (

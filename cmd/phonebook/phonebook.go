@@ -1,3 +1,6 @@
+// phonebook dumps the contents of the modem SIM phonebook.
+//
+// This provides an example of processing the info returned by the modem.
 package main
 
 import (
@@ -41,6 +44,9 @@ func main() {
 		return
 	}
 	for _, l := range i {
+		if !info.HasPrefix(l, "+CPBR") {
+			continue
+		}
 		entry := strings.Split(info.TrimPrefix(l, "+CPBR"), ",")
 		nameh := []byte(strings.Trim(entry[3], "\""))
 		name := make([]byte, hex.DecodedLen(len(nameh)))

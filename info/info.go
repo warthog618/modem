@@ -1,3 +1,5 @@
+// Package info provides utility functions for manipulating info lines returned
+// by the modem in response to AT commands.
 package info
 
 import "strings"
