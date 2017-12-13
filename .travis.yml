@@ -10,9 +10,15 @@ os:
   - linux
   - osx
 
+env:
+
 matrix:
+  include:
+  - os: osx
+    go: 1.8
+    env: FLAGS="-ldflags -s" # refer golang/go#19734
   allow_failures:
     - go: master
   fast_finish: true
 
-script: go test  $(go list ./... | grep -v /cmd/)
+script: go test $FLAGS $(go list ./... | grep -v /cmd/)
