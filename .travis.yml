@@ -1,0 +1,18 @@
+language: go
+
+go:
+  - 1.x
+  - 1.8
+  - 1.9
+  - master
+
+os:
+  - linux
+  - osx
+
+matrix:
+  allow_failures:
+    - go: master
+  fast_finish: true
+
+script: go test  $(go list ./... | grep -v /cmd/)

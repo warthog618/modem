@@ -8,7 +8,7 @@ The initial impetus is to provide functionality to send and receive SMSs via
 a GSM modem, but the library may be generally useful for any device controlled
 by AT commands.
 
-The AT package provides a lowl level driver which sits between an io.ReadWriter,
+The AT package provides a low level driver which sits between an io.ReadWriter,
 representing the physical modem, and a higher level driver or application.
 The AT driver provides the ability to issue AT commands to the modem, and to
 receive the info and status returned by the modem, as synchronous function calls.
@@ -42,6 +42,10 @@ Supports the following functionality:
 
 Refer to package documentation, tests and example commands.
 
-## TODO ##
-
-- Encoding/Decoding of SMS PDUs
+Package | Documentation | Tests | Example code
+------- | ------------- | ----- | ------------
+at | [![GoDoc](https://godoc.org/github.com/warthog618/modem/at?status.svg)](https://godoc.org/github.com/warthog618/modem/at) | [at_test](at/at_test.go) | [modeminfo](cmd/modeminfo/modeminfo.go)
+gsm | [![GoDoc](https://godoc.org/github.com/warthog618/modem/gsm?status.svg)](https://godoc.org/github.com/warthog618/modem/gsm) | [gsm_test](gsm/gsm_test.go) | [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
+info | [![GoDoc](https://godoc.org/github.com/warthog618/modem/info?status.svg)](https://godoc.org/github.com/warthog618/modem/info) | [info_test](info/info_test.go) | [phonebook](cmd/phonebook/phonebook.go)
+serial | [![GoDoc](https://godoc.org/github.com/warthog618/modem/serial?status.svg)](https://godoc.org/github.com/warthog618/modem/serial) | [serial_test](serial/serial_test.go) | [modeminfo](cmd/modeminfo/modeminfo.go), [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
+trace | [![GoDoc](https://godoc.org/github.com/warthog618/modem/trace?status.svg)](https://godoc.org/github.com/warthog618/modem/trace) | [trace_test](trace/trace_test.go) | [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
