@@ -9,17 +9,21 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"time"
 
 	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/serial"
+	"github.com/warthog618/modem/trace"
 )
 
 func main() {
 	dev := flag.String("d", "/dev/ttyUSB0", "path to modem device")
 	baud := flag.Int("b", 115200, "baud rate")
-	timeout := flag.Duration("t", 100*time.Millisecond, "command timeout period")
+	timeout := flag.Duration("t", 400*time.Millisecond, "command timeout period")
+	verbose := flag.Bool("v", false, "log modem interactions")
 	flag.Parse()
 	m, err := serial.New(*dev, *baud)
 	if err != nil {
@@ -27,7 +31,11 @@ func main() {
 		return
 	}
 	defer m.Close()
-	a := at.New(m)
+	var mio io.ReadWriter = m
+	if *verbose {
+		mio = trace.New(m, log.New(os.Stdout, "", log.LstdFlags))
+	}
+	a := at.New(mio)
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	err = a.Init(ctx)
 	cancel()

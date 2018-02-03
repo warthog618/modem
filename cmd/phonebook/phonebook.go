@@ -8,29 +8,36 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/warthog618/modem/gsm"
 	"github.com/warthog618/modem/info"
 	"github.com/warthog618/modem/serial"
+	"github.com/warthog618/modem/trace"
 )
 
 func main() {
 	dev := flag.String("d", "/dev/ttyUSB0", "path to modem device")
 	baud := flag.Int("b", 115200, "baud rate")
-	timeout := flag.Duration("t", 100*time.Millisecond, "command timeout period")
+	timeout := flag.Duration("t", 400*time.Millisecond, "command timeout period")
+	verbose := flag.Bool("v", false, "log modem interactions")
 	flag.Parse()
 	m, err := serial.New(*dev, *baud)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	//	tr := trace.New(m, log.New(os.Stdout, "", log.LstdFlags))
-	g := gsm.New(m)
+	var mio io.ReadWriter = m
+	if *verbose {
+		mio = trace.New(m, log.New(os.Stdout, "", log.LstdFlags))
+	}
+	g := gsm.New(mio)
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	g.Init(ctx)
+	err = g.Init(ctx)
 	cancel()
 	if err != nil {
 		log.Println(err)

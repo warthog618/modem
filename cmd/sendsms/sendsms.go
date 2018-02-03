@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"flag"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -21,7 +22,9 @@ func main() {
 	baud := flag.Int("b", 115200, "baud rate")
 	num := flag.String("n", "+12345", "number to send to, in international format")
 	msg := flag.String("m", "Zoot Zoot", "the message to send")
-	timeout := flag.Duration("t", 100*time.Millisecond, "command timeout period")
+	timeout := flag.Duration("t", 400*time.Millisecond, "command timeout period")
+	verbose := flag.Bool("v", false, "log modem interactions")
+	hex := flag.Bool("x", false, "hex dump modem responses")
 	flag.Parse()
 
 	m, err := serial.New(*dev, *baud)
@@ -29,11 +32,13 @@ func main() {
 		log.Println(err)
 		return
 	}
-	// tracing for development
-	l := log.New(os.Stdout, "", log.LstdFlags)
-	trt := trace.New(m, l)
-	//	trh := trace.New(trt, l, trace.HexMode())
-	g := gsm.New(trt)
+	var mio io.ReadWriter = m
+	if *hex {
+		mio = trace.New(m, log.New(os.Stdout, "", log.LstdFlags), trace.ReadFormat("r: %v"))
+	} else if *verbose {
+		mio = trace.New(m, log.New(os.Stdout, "", log.LstdFlags))
+	}
+	g := gsm.New(mio)
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	if err = g.Init(ctx); err != nil {
