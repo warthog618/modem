@@ -71,7 +71,7 @@ func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
 	}
 }
 
-// AddIndication adds a handler for a set of lines begining with the prefixed
+// AddIndication adds a handler for a set of lines beginning with the prefixed
 // line and the following trailing lines.
 // Each set of lines is returned via the returned channel.
 // The return channel is closed when the AT closes.
@@ -127,7 +127,7 @@ func (a *AT) CancelIndication(prefix string) {
 func (a *AT) Init(ctx context.Context) error {
 	// escape any outstanding SMS operations then CR to flush the command buffer
 	a.modem.Write([]byte(string(27) + "\r\n\r\n"))
-	// allow time for response, or at least any residual OK, to propagate and be disacarded.
+	// allow time for response, or at least any residual OK, to propagate and be discarded.
 	a.startWriteGuard()
 
 	cmds := []string{
