@@ -16,8 +16,11 @@ type Trace struct {
 	rfmt string
 }
 
+// Option modifies a Trace object created by New.
+type Option func(*Trace)
+
 // New creates a new trace on the io.ReadWriter.
-func New(rw io.ReadWriter, l *log.Logger, opts ...func(*Trace)) *Trace {
+func New(rw io.ReadWriter, l *log.Logger, opts ...Option) *Trace {
 	t := &Trace{rw: rw, l: l, wfmt: "w: %s", rfmt: "r: %s"}
 	for _, opt := range opts {
 		opt(t)
@@ -26,14 +29,14 @@ func New(rw io.ReadWriter, l *log.Logger, opts ...func(*Trace)) *Trace {
 }
 
 // ReadFormat sets the format used for read logs.
-func ReadFormat(format string) func(t *Trace) {
+func ReadFormat(format string) Option {
 	return func(t *Trace) {
 		t.rfmt = format
 	}
 }
 
 // WriteFormat sets the format used for write logs.
-func WriteFormat(format string) func(t *Trace) {
+func WriteFormat(format string) Option {
 	return func(t *Trace) {
 		t.wfmt = format
 	}
