@@ -4,6 +4,8 @@ modem
 A low level Go driver for AT modems.
 
 [![Build Status](https://travis-ci.org/warthog618/modem.svg)](https://travis-ci.org/warthog618/modem)
+[![Go Report Card](https://goreportcard.com/badge/github.com/warthog618/modem)](https://goreportcard.com/report/github.com/warthog618/modem)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/warthog618/modem/blob/master/LICENSE)
 
 modem is a Go library for interacting with AT based modems.
 The initial impetus was to provide functionality to send and receive SMSs via
