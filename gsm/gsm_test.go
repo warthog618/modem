@@ -11,15 +11,20 @@ package gsm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"testing"
 
+	"github.com/pkg/errors"
+
+	"github.com/stretchr/testify/assert"
 	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/trace"
+	"github.com/warthog618/sms/encoding/semioctet"
+	"github.com/warthog618/sms/encoding/tpdu"
+	"github.com/warthog618/sms/ms/pdumode"
 )
 
 func TestNew(t *testing.T) {
@@ -60,89 +65,57 @@ func TestInit(t *testing.T) {
 		t.Error("modem closed")
 	default:
 	}
-	ctx := context.Background()
-	// vanilla
-	err := g.Init(ctx)
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-
-	// residual OKs
-	mm.r <- []byte("\r\nOK\r\nOK\r\n")
-	err = g.Init(ctx)
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-
-	// residual ERRORs
-	mm.r <- []byte("\r\nERROR\r\nERROR\r\n")
-	err = g.Init(ctx)
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-
-	// ignore cruft in response
-	cmdSet["AT+GCAP\r\n"] = []string{"cruft\r\n", "+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"}
-	err = g.Init(ctx)
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-
-	// init failure (CMEE)
-	cmdSet["AT+CMEE=2\r\n"] = []string{"ERROR\r\n"}
-	err = g.Init(ctx)
-	if err == nil {
-		t.Error("didn't error")
-	}
-
-	// GCAP req failure
-	cmdSet["AT+GCAP\r\n"] = []string{"ERROR\r\n"}
-	err = g.Init(ctx)
-	if err == nil {
-		t.Error("didn't error")
-	}
-
-	// Not GSM capable
-	cmdSet["AT+GCAP\r\n"] = []string{"+GCAP: +DS,+ES\r\n", "OK\r\n"}
-	err = g.Init(ctx)
-	if err != ErrNotGSMCapable {
-		t.Error("unexpected error:", err)
-	}
-
-	// AT init failure
-	cmdSet["ATZ\r\n"] = []string{"ERROR\r\n"}
-	err = g.Init(ctx)
-	if err == nil {
-		t.Error("didn't error")
-	}
-
-	// restored command set to check failures above are not due to something else.
-	cmdSet["ATZ\r\n"] = []string{"\r\n", "OK\r\n"}
-	cmdSet["AT+GCAP\r\n"] = []string{"+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"}
-	cmdSet["AT+CMEE=2\r\n"] = []string{"OK\r\n"}
-	err = g.Init(ctx)
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-
-	// cancelled
-	cctx, cancel := context.WithCancel(ctx)
+	background := context.Background()
+	cancelled, cancel := context.WithCancel(background)
 	cancel()
-	err = g.Init(cctx)
-	if err != context.Canceled {
-		t.Error("unexpected error:", err)
+	timeout, cancel := context.WithTimeout(background, 0)
+	patterns := []struct {
+		name     string
+		ctx      context.Context
+		residual []byte
+		key      string
+		value    []string
+		pduMode  bool
+		err      error
+	}{
+		{"vanilla", background, nil, "", nil, false, nil},
+		{"residual OKs", background, []byte("\r\nOK\r\nOK\r\n"), "", nil, false, nil},
+		{"residual ERRORs", background, []byte("\r\nERROR\r\nERROR\r\n"), "", nil, false, nil},
+		{"cruft", background, nil, "AT+GCAP\r\n", []string{"cruft\r\n", "+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"}, false, nil},
+		{"CMEE error", background, nil, "AT+CMEE=2\r\n", []string{"ERROR\r\n"}, false, at.ErrError},
+		{"GCAP error", background, nil, "AT+GCAP\r\n", []string{"ERROR\r\n"}, false, at.ErrError},
+		{"not GSM capable", background, nil, "AT+GCAP\r\n", []string{"+GCAP: +DS,+ES\r\n", "OK\r\n"}, false, ErrNotGSMCapable},
+		{"AT init failure", background, nil, "ATZ\r\n", []string{"ERROR\r\n"}, false, errors.WithMessage(at.ErrError, "ATZ returned error")},
+		{"cancelled", cancelled, nil, "", nil, false, context.Canceled},
+		{"timeout", timeout, nil, "", nil, false, context.DeadlineExceeded},
+		{"unsupported PDU mode", background, nil, "", nil, true, at.ErrError},
+		{"PDU mode", background, nil, "AT+CMGF=0\r\n", []string{"OK\r\n"}, true, nil},
 	}
-
-	// timeout
-	cctx, cancel = context.WithTimeout(ctx, 0)
-	err = g.Init(cctx)
-	if err != context.DeadlineExceeded {
-		t.Error("unexpected error:", err)
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			var oldvalue []string
+			if p.residual != nil {
+				mm.r <- p.residual
+			}
+			if p.pduMode {
+				g.SetPDUMode()
+			}
+			if p.key != "" {
+				oldvalue, _ = cmdSet[p.key]
+				cmdSet[p.key] = p.value
+			}
+			err := g.Init(p.ctx)
+			if oldvalue != nil {
+				cmdSet[p.key] = oldvalue
+			}
+			assert.Equal(t, p.err, err)
+		}
+		t.Run(p.name, f)
 	}
 	cancel()
 }
 
-func TestSMSSend(t *testing.T) {
+func TestSendSMS(t *testing.T) {
 	// mocked
 	cmdSet := map[string][]string{
 		"AT+CMGS=\"+123456789\"\r":            {"\n>"},
@@ -150,68 +123,98 @@ func TestSMSSend(t *testing.T) {
 		"cruft test message" + string(26):     {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
 		"malformed test message" + string(26): {"\r\n", "pad\r\n", "\r\nOK\r\n"},
 	}
+	background := context.Background()
+	cancelled, cancel := context.WithCancel(background)
+	cancel()
+	timeout, cancel := context.WithTimeout(background, 0)
+	patterns := []struct {
+		name    string
+		ctx     context.Context
+		number  string
+		message string
+		err     error
+		mr      string
+	}{
+		{"ok", background, "+123456789", "test message", nil, "42"},
+		{"error", background, "+1234567890", "test message", at.ErrError, ""},
+		{"cruft", background, "+123456789", "cruft test message", nil, "43"},
+		{"malformed", background, "+123456789", "malformed test message", ErrMalformedResponse, ""},
+		{"cancelled", cancelled, "+123456789", "test message", context.Canceled, ""},
+		{"timeout", timeout, "+123456789", "test message", context.DeadlineExceeded, ""},
+	}
 	g, mm := setupModem(t, cmdSet)
 	defer teardownModem(mm)
 
-	ctx := context.Background()
-
-	// OK
-	mr, err := g.SendSMS(ctx, "+123456789", "test message")
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-	if mr != "42" {
-		t.Errorf("expected mr '42', but got '%s'", mr)
-	}
-
-	// ERROR
-	mr, err = g.SendSMS(ctx, "+1234567890", "test message")
-	if err != at.ErrError {
-		t.Error("unexpected error:", err)
-	}
-	if mr != "" {
-		t.Errorf("expected mr '', but got '%s'", mr)
-	}
-
-	// extra cruft
-	mr, err = g.SendSMS(ctx, "+123456789", "cruft test message")
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-	if mr != "43" {
-		t.Errorf("expected mr '43', but got '%s'", mr)
-	}
-
-	// malformed
-	mr, err = g.SendSMS(ctx, "+123456789", "malformed test message")
-	if err != ErrMalformedResponse {
-		t.Error("unexpected error:", err)
-	}
-	if mr != "" {
-		t.Errorf("expected mr '', but got '%s'", mr)
-	}
-
-	// cancelled
-	cctx, cancel := context.WithCancel(ctx)
-	cancel()
-	mr, err = g.SendSMS(cctx, "+123456789", "test message")
-	if err != context.Canceled {
-		t.Error("unexpected error:", err)
-	}
-	if mr != "" {
-		t.Errorf("expected mr '', but got '%s'", mr)
-	}
-
-	// timeout
-	cctx, cancel = context.WithTimeout(ctx, 0)
-	mr, err = g.SendSMS(cctx, "+123456789", "test message")
-	if err != context.DeadlineExceeded {
-		t.Error("unexpected error:", err)
-	}
-	if mr != "" {
-		t.Errorf("expected mr '', but got '%s'", mr)
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			mr, err := g.SendSMS(p.ctx, p.number, p.message)
+			assert.Equal(t, p.err, err)
+			assert.Equal(t, p.mr, mr)
+		}
+		t.Run(p.name, f)
 	}
 	cancel()
+
+	g.SetPDUMode()
+	p := patterns[0]
+	mr, err := g.SendSMS(p.ctx, p.number, p.message)
+	assert.Equal(t, ErrWrongMode, err)
+	assert.Equal(t, "", mr)
+
+}
+
+func TestSendSMSPDU(t *testing.T) {
+	// mocked
+	cmdSet := map[string][]string{
+		"AT+CMGS=6\r":                 {"\n>"},
+		"00010203040506" + string(26): {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
+		"00110203040506" + string(26): {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
+		"00210203040506" + string(26): {"\r\n", "pad\r\n", "\r\nOK\r\n"},
+	}
+	background := context.Background()
+	cancelled, cancel := context.WithCancel(background)
+	cancel()
+	timeout, cancel := context.WithTimeout(background, 0)
+	patterns := []struct {
+		name string
+		ctx  context.Context
+		tpdu []byte
+		err  error
+		mr   string
+	}{
+		{"ok", background, []byte{1, 2, 3, 4, 5, 6}, nil, "42"},
+		{"error", background, []byte{1}, at.ErrError, ""},
+		{"cruft", background, []byte{0x11, 2, 3, 4, 5, 6}, nil, "43"},
+		{"malformed", background, []byte{0x21, 2, 3, 4, 5, 6}, ErrMalformedResponse, ""},
+		{"cancelled", cancelled, []byte{1, 2, 3, 4, 5, 6}, context.Canceled, ""},
+		{"timeout", timeout, []byte{1, 2, 3, 4, 5, 6}, context.DeadlineExceeded, ""},
+	}
+	g, mm := setupModem(t, cmdSet)
+	defer teardownModem(mm)
+
+	p := patterns[0]
+	omr, oerr := g.SendSMSPDU(p.ctx, p.tpdu)
+	assert.Equal(t, ErrWrongMode, oerr)
+	assert.Equal(t, "", omr)
+
+	g.SetPDUMode()
+
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			mr, err := g.SendSMSPDU(p.ctx, p.tpdu)
+			assert.Equal(t, p.err, err)
+			assert.Equal(t, p.mr, mr)
+		}
+		t.Run(p.name, f)
+	}
+	cancel()
+
+	g.SetSCA(pdumode.SMSCAddress{TOA: 0, Addr: "text"})
+	p = patterns[0]
+	omr, oerr = g.SendSMSPDU(p.ctx, p.tpdu)
+	assert.Equal(t, tpdu.EncodeError("addr", semioctet.ErrInvalidDigit(0x74)), oerr)
+	assert.Equal(t, "", omr)
+
 }
 
 type mockModem struct {

@@ -4,12 +4,13 @@ package at
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 // AT represents a modem that can be managed using AT commands.
@@ -141,7 +142,7 @@ func (a *AT) Init(ctx context.Context) error {
 		case context.DeadlineExceeded, context.Canceled:
 			return err
 		default:
-			return fmt.Errorf("AT%s returned error '%v'", cmd, err)
+			return errors.WithMessage(err, fmt.Sprintf("AT%s returned error", cmd))
 		}
 	}
 	return nil

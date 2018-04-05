@@ -19,7 +19,7 @@ receive the info and status returned by the modem, as synchronous function calls
 Handlers for asynchronous indications from the modem, such as received SMSs,
 can be registered with the driver.
 
-The [GSM](gsm) package adds a higher level SendSMS method to the AT driver, that allows
+The [GSM](gsm) package adds higher level SendSMS and SendSMSPDU methods to the AT driver, that allows
 for sending SMSs without any knowledge of the underlying AT commands.
 
 The [info](info) package provides utility functions to manipulate the info returned in
