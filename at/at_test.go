@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/warthog618/modem/trace"
 )
 
@@ -134,123 +135,50 @@ func TestCommand(t *testing.T) {
 	}
 	m, mm := setupModem(t, cmdSet)
 	defer teardownModem(mm)
-	ctx := context.Background()
-	// empty req (AT)
-	info, err := m.Command(ctx, "")
-	if err != nil {
-		t.Error("unexpected error:", err)
+	background := context.Background()
+	cancelled, cancel := context.WithCancel(background)
+	cancel()
+	timeout, cancel := context.WithTimeout(background, 0)
+	patterns := []struct {
+		name    string
+		ctx     context.Context
+		cmd     string
+		mutator func()
+		info    []string
+		err     error
+	}{
+		{"empty", background, "", nil, nil, nil},
+		{"pass", background, "PASS", nil, nil, nil},
+		{"info", background, "INFO=1", nil, []string{"info1", "info2", "INFO: info3"}, nil},
+		{"err", background, "ERR", nil, nil, ErrError},
+		{"cms", background, "CMS", nil, nil, CMSError("204")},
+		{"cme", background, "CME", nil, nil, CMEError("42")},
+		{"no echo", background, "INFO=1", func() { mm.echo = false }, []string{"info1", "info2", "INFO: info3"}, nil},
+		{"timeout", timeout, "", nil, nil, context.DeadlineExceeded},
+		{"cancelled", cancelled, "", func() {
+			m, mm = setupModem(t, cmdSet)
+		}, nil, context.Canceled},
+		{"write error", background, "PASS", func() {
+			m, mm = setupModem(t, cmdSet)
+			mm.errOnWrite = true
+		}, nil, errors.New("Write error")},
+		{"closed before response", background, "NULL", func() {
+			mm.closeOnWrite = true
+		}, nil, ErrClosed},
+		{"closed before request", background, "PASS", func() { <-m.Closed() }, nil, ErrClosed},
 	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// non-empty request
-	info, err = m.Command(ctx, "PASS")
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// non-empty info
-	info, err = m.Command(ctx, "INFO=1")
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-	if info == nil {
-		t.Error("didn't return info")
-	}
-
-	// ERROR
-	info, err = m.Command(ctx, "ERR")
-	if err != ErrError {
-		t.Error("unexpected error:", err)
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// CMS Error
-	info, err = m.Command(ctx, "CMS")
-	if err != nil {
-		cms, ok := err.(CMSError)
-		if !ok {
-			t.Error("not CMS error:", err)
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			if p.mutator != nil {
+				p.mutator()
+			}
+			info, err := m.Command(p.ctx, p.cmd)
+			assert.Equal(t, p.err, err)
+			assert.Equal(t, p.info, info)
 		}
-		if cms != "204" {
-			t.Error("didn't error expected value. got '" + cms + "' expected '204'")
-		}
-		if cms.Error() != "CMS Error: 204" {
-			t.Error("not formatted as expected - got ", cms)
-		}
-	} else {
-		t.Error("didn't error")
+		t.Run(p.name, f)
 	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// CME Error
-	info, err = m.Command(ctx, "CME")
-	if err != nil {
-		cme, ok := err.(CMEError)
-		if !ok {
-			t.Error("not CME error:", err)
-		}
-		if cme != "42" {
-			t.Error("didn't error expected value. got '" + cme + "' expected '42'")
-		}
-		if cme.Error() != "CME Error: 42" {
-			t.Error("not formatted as expected - got ", cme)
-		}
-	} else {
-		t.Error("didn't error")
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// no echo
-	mm.echo = false
-	// no-echo non-empty info
-	info, err = m.Command(ctx, "INFO=1")
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-	if info == nil {
-		t.Error("didn't return info")
-	}
-
-	// closed before response
-	mm.closeOnWrite = true
-	info, err = m.Command(ctx, "NULL")
-	if err == nil {
-		t.Error("didn't error")
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// closed before request
-	<-m.Closed()
-	info, err = m.Command(ctx, "PASS")
-	if err == nil {
-		t.Error("didn't error")
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// write Error
-	mm.errOnWrite = true
-	info, err = m.Command(ctx, "PASS")
-	if err == nil {
-		t.Error("didn't error")
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
+	cancel()
 }
 
 func TestCommandClosedIdle(t *testing.T) {
@@ -329,124 +257,56 @@ func TestSMSCommand(t *testing.T) {
 		"ATCME\r":           {"\r\n+CME ERROR: 42\r\n"},
 		"ATSMS\r":           {"\n>"},
 		"ATSMS2\r":          {"\n> "},
-		"info" + string(26): {"info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
-		"sms+" + string(26): {"\r\n", "info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
+		"info" + string(26): {"\r\n", "info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
+		"sms+" + string(26): {"\r\n", "info4\r\n", "info5\r\n", "INFO: info6\r\n", "\r\n", "OK\r\n"},
 	}
 	m, mm := setupModem(t, cmdSet)
 	defer teardownModem(mm)
-	ctx := context.Background()
-
-	// Error
-	info, err := m.SMSCommand(ctx, "ERR", "errsms")
-	if err != ErrError {
-		t.Error("unexpected error:", err)
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// CMS Error
-	info, err = m.SMSCommand(ctx, "CMS", "cmssms")
-	if err != nil {
-		cms, ok := err.(CMSError)
-		if !ok {
-			t.Error("not CMS error:", err)
-		}
-		if cms != "204" {
-			t.Error("didn't error expected value. got '" + cms + "' expected '204'")
-		}
-	} else {
-		t.Error("didn't error")
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// CME Error
-	info, err = m.SMSCommand(ctx, "CME", "cmesms")
-	if err != nil {
-		cme, ok := err.(CMEError)
-		if !ok {
-			t.Error("not CME error:", err)
-		}
-		if cme != "42" {
-			t.Error("didn't error expected value. got '" + cme + "' expected '42'")
-		}
-	} else {
-		t.Error("didn't error")
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// OK
-	info, err = m.SMSCommand(ctx, "SMS", "sms+")
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-	if info == nil {
-		t.Error("returned nil info")
-	} else {
-		if err = checkInfo(cmdSet["sms+"+string(26)][1:len(cmdSet["sms+"+string(26)])-2], info); err != nil {
-			t.Error(err)
-		}
-	}
-
-	// No echo
-	mm.echo = false
-	info, err = m.SMSCommand(ctx, "SMS2", "info")
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
-	if info == nil {
-		t.Error("returned nil info")
-	} else {
-		if err = checkInfo(cmdSet["info"+string(26)][0:len(cmdSet["info"+string(26)])-2], info); err != nil {
-			t.Error(err)
-		}
-	}
-
-	// cancelled
-	cctx, cancel := context.WithCancel(context.Background())
+	background := context.Background()
+	cancelled, cancel := context.WithCancel(background)
 	cancel()
-	info, err = m.SMSCommand(cctx, "SMS2", "info")
-	if err != context.Canceled {
-		t.Error("unexpected error:", err)
+	timeout, cancel := context.WithTimeout(background, 0)
+	patterns := []struct {
+		name    string
+		ctx     context.Context
+		cmd1    string
+		cmd2    string
+		mutator func()
+		info    []string
+		err     error
+	}{
+		{"empty", background, "", "", nil, nil, ErrError},
+		{"ok", background, "SMS", "sms+", nil, []string{"info4", "info5", "INFO: info6"}, nil},
+		{"info", background, "SMS", "info", nil, []string{"info1", "info2", "INFO: info3"}, nil},
+		{"err", background, "ERR", "errsms", nil, nil, ErrError},
+		{"cms", background, "CMS", "cmssms", nil, nil, CMSError("204")},
+		{"cme", background, "CME", "cmesms", nil, nil, CMEError("42")},
+		{"no echo", background, "SMS2", "info", func() { mm.echo = false }, []string{"info1", "info2", "INFO: info3"}, nil},
+		{"timeout", timeout, "SMS2", "info", nil, nil, context.DeadlineExceeded},
+		{"cancelled", cancelled, "SMS2", "info", func() {
+			m, mm = setupModem(t, cmdSet)
+		}, nil, context.Canceled},
+		{"write error", background, "EoW", "errOnWrite", func() {
+			m, mm = setupModem(t, cmdSet)
+			mm.errOnWrite = true
+		}, nil, errors.New("Write error")},
+		{"closed before response", background, "CoW", "closeOnWrite", func() {
+			mm.closeOnWrite = true
+		}, nil, ErrClosed},
+		{"closed before request", background, "C", "closed", func() { <-m.Closed() }, nil, ErrClosed},
 	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			if p.mutator != nil {
+				p.mutator()
+			}
+			info, err := m.SMSCommand(p.ctx, p.cmd1, p.cmd2)
+			assert.Equal(t, p.err, err)
+			assert.Equal(t, p.info, info)
+		}
+		t.Run(p.name, f)
 	}
-
-	// write error
-	mm.errOnWrite = true
-	info, err = m.SMSCommand(ctx, "EoW", "errOnWrite")
-	if err == nil {
-		t.Error("didn't error")
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// closed before response
-	mm.closeOnWrite = true
-	info, err = m.SMSCommand(ctx, "CoW", "closeOnWrite")
-	if err == nil {
-		t.Error("didn't error")
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
-	// closed before request
-	<-m.Closed()
-	info, err = m.SMSCommand(ctx, "C", "closed")
-	if err == nil {
-		t.Error("didn't error")
-	}
-	if info != nil {
-		t.Error("returned unexpected info:", info)
-	}
-
+	cancel()
 }
 
 func TestSMSCommandClosedPrePDU(t *testing.T) {
@@ -486,9 +346,7 @@ func TestAddIndication(t *testing.T) {
 	defer teardownModem(mm)
 
 	c, err := m.AddIndication("notify", 0)
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
+	assert.Nil(t, err)
 	if c == nil {
 		t.Fatalf("didn't return channel")
 	}
@@ -500,32 +358,22 @@ func TestAddIndication(t *testing.T) {
 	mm.r <- []byte("notify: :yfiton\r\n")
 	select {
 	case n := <-c:
-		if err = checkInfo(n, []string{"notify: :yfiton"}); err != nil {
-			t.Error(err)
-		}
+		assert.Equal(t, []string{"notify: :yfiton"}, n)
 	case <-time.After(100 * time.Millisecond):
 		t.Errorf("no notification received")
 	}
 	c2, err := m.AddIndication("notify", 0)
-	if err == nil {
-		t.Error("didn't error")
-	}
-	if c2 != nil {
-		t.Errorf("returned channel on error")
-	}
+	assert.Equal(t, ErrIndicationExists, err)
+	assert.Nil(t, c2, "shouldn't return channel on error")
 	c2, err = m.AddIndication("foo", 2)
-	if err != nil {
-		t.Error("unexpected error:", err)
-	}
+	assert.Nil(t, err)
 	if c2 == nil {
 		t.Fatalf("didn't return channel")
 	}
 	mm.r <- []byte("foo:\r\nbar\r\nbaz\r\n")
 	select {
 	case n := <-c2:
-		if err = checkInfo(n, []string{"foo:", "bar", "baz"}); err != nil {
-			t.Error(err)
-		}
+		assert.Equal(t, []string{"foo:", "bar", "baz"}, n)
 	case <-time.After(100 * time.Millisecond):
 		t.Errorf("no notification received")
 	}
@@ -541,13 +389,8 @@ func TestAddIndication(t *testing.T) {
 		t.Error("channel 2 still open")
 	}
 	c2, err = m.AddIndication("foo", 2)
-	if err != ErrClosed {
-		t.Error("unexpected error:", err)
-	}
-	if c2 != nil {
-		t.Errorf("returned channel on error")
-	}
-
+	assert.Equal(t, ErrClosed, err)
+	assert.Nil(t, c2, "shouldn't return channel on error")
 }
 
 func TestCancelIndication(t *testing.T) {
@@ -633,8 +476,6 @@ func (m *mockModem) Write(p []byte) (n int, err error) {
 		return 0, errors.New("closed")
 	}
 	if m.closeOnWrite {
-		// provide time for commands to be queued before closing...
-		time.Sleep(10 + time.Millisecond)
 		m.closeOnWrite = false
 		m.Close()
 		return len(p), nil
@@ -655,8 +496,6 @@ func (m *mockModem) Write(p []byte) (n int, err error) {
 			}
 			m.r <- []byte(l)
 			if m.closeOnSMSPrompt && len(l) > 1 && l[1] == '>' {
-				// provide time for commands to be queued before closing...
-				time.Sleep(10 + time.Millisecond)
 				m.Close()
 			}
 		}

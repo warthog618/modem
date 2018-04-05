@@ -275,9 +275,6 @@ func (a *AT) processReq(ctx context.Context, req request) response {
 				}
 				fallthrough
 			case rxlInfo:
-				if rsp.info == nil {
-					rsp.info = make([]string, 0)
-				}
 				rsp.info = append(rsp.info, line)
 			case rxlSMSPrompt:
 				if req.sms != nil {
