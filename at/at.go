@@ -244,7 +244,7 @@ func (a *AT) processReq(ctx context.Context, req request) response {
 		return response{err: err}
 	}
 	cmdID := parseCmdID(req.cmd)
-	var rsp response
+	var rsp response // populated over potentially multiple lines from the modem
 	for {
 		select {
 		case <-ctx.Done():
@@ -262,34 +262,55 @@ func (a *AT) processReq(ctx context.Context, req request) response {
 			if line == "" {
 				continue
 			}
-			switch parseRxLine(line, cmdID) {
-			case rxlStatusOK:
+			info, done, err := a.processRxLine(line, cmdID, req.sms)
+			if info != nil {
+				rsp.info = append(rsp.info, *info)
+			}
+			if err != nil {
+				return response{err: err}
+			}
+			if done {
 				return rsp
-			case rxlStatusError:
-				rsp.err = newError(line)
-				return rsp
-			case rxlUnknown:
-				if req.sms != nil && line[len(line)-1] == 26 && strings.HasPrefix(line, *req.sms) {
-					// swallow echoed SMS PDU
-					continue
-				}
-				fallthrough
-			case rxlInfo:
-				rsp.info = append(rsp.info, line)
-			case rxlSMSPrompt:
-				if req.sms != nil {
-					if err := a.writeSMS(*req.sms); err != nil {
-						// escape SMS
-						a.modem.Write([]byte(string(27) + "\r\n"))
-						a.startWriteGuard()
-						return response{err: err}
-					}
-				}
 			}
 		}
 	}
 }
 
+// processRxLine parses a line received from the modem and determines how it
+// adds to the response for the current command.
+// The return values are:
+// - a line of info to be added to the response (optional)
+// - a flag indicating if the command is complete.
+// - an error detected while processing the command.
+func (a *AT) processRxLine(line, cmdID string, sms *string) (*string, bool, error) {
+	switch parseRxLine(line, cmdID) {
+	case rxlStatusOK:
+		return nil, true, nil
+	case rxlStatusError:
+		return nil, false, newError(line)
+	case rxlUnknown:
+		if sms != nil && line[len(line)-1] == 26 && strings.HasPrefix(line, *sms) {
+			// swallow echoed SMS PDU
+			return nil, false, nil
+		}
+		fallthrough
+	case rxlInfo:
+		return &line, false, nil
+	case rxlSMSPrompt:
+		if sms != nil {
+			if err := a.writeSMS(*sms); err != nil {
+				// escape SMS
+				a.modem.Write([]byte(string(27) + "\r\n"))
+				a.startWriteGuard()
+				return nil, false, err
+			}
+		}
+	}
+	return nil, false, nil
+}
+
+// startWriteGuard starts a write guard that prevents a subsequent write
+// within a short period of time (20ms).
 func (a *AT) startWriteGuard() {
 	a.wgmu.Lock()
 	a.guarded = true
@@ -297,6 +318,7 @@ func (a *AT) startWriteGuard() {
 	a.wgmu.Unlock()
 }
 
+// waitWriteGuard waits for a write guard to allow a write to the modem.
 func (a *AT) waitWriteGuard() {
 	a.wgmu.Lock()
 	defer a.wgmu.Unlock()
@@ -360,6 +382,7 @@ var (
 	ErrIndicationExists = errors.New("indication exists")
 )
 
+// newError parses a line and creates an error corresponding to the content.
 func newError(line string) error {
 	var err error
 	switch {
@@ -439,7 +462,7 @@ func parseRxLine(line string, cmdID string) rxl {
 	case strings.HasPrefix(line, "AT"+cmdID):
 		return rxlEchoCmdLine
 	default:
-		// Don't attempt to identify SMS PDUs at this level, so they will
+		// No attempt to identify SMS PDUs at this level, so they will
 		// be caught here, along with other unidentified lines.
 		return rxlUnknown
 	}
