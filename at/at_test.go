@@ -448,6 +448,36 @@ func TestAddIndicationClose(t *testing.T) {
 	}
 }
 
+func TestCMEError(t *testing.T) {
+	patterns := []string{"1", "204", "42"}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			err := CMEError(p)
+			expected := fmt.Sprintf("CME Error: %s", string(err))
+			s := err.Error()
+			if s != expected {
+				t.Errorf("failed to stringify %02x, expected '%s', got '%s'", p, expected, s)
+			}
+		}
+		t.Run(fmt.Sprintf("%x", p), f)
+	}
+}
+
+func TestCMSError(t *testing.T) {
+	patterns := []string{"1", "204", "42"}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			err := CMSError(p)
+			expected := fmt.Sprintf("CMS Error: %s", string(err))
+			s := err.Error()
+			if s != expected {
+				t.Errorf("failed to stringify %02x, expected '%s', got '%s'", p, expected, s)
+			}
+		}
+		t.Run(fmt.Sprintf("%x", p), f)
+	}
+}
+
 type mockModem struct {
 	cmdSet           map[string][]string
 	closeOnWrite     bool
