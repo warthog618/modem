@@ -267,7 +267,8 @@ func (a *AT) processReq(ctx context.Context, req request) response {
 				rsp.info = append(rsp.info, *info)
 			}
 			if err != nil {
-				return response{err: err}
+				rsp.err = err
+				return rsp
 			}
 			if done {
 				return rsp
