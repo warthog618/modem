@@ -95,8 +95,9 @@ func main() {
 	}
 	udd, err := tpdu.NewUDDecoder()
 	if err != nil {
-		log.Printf("err: %v\n", err)
+		log.Fatalf("err: %v\n", err)
 	}
+	udd.AddAllCharsets()
 	c := sar.NewCollector(time.Hour, asyncError)
 	reassembler := message.NewReassembler(udd, c)
 	defer reassembler.Close()

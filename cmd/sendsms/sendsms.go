@@ -64,6 +64,7 @@ func sendPDU(ctx context.Context, g *gsm.GSM, number string, msg string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	ude.AddAllCharsets()
 	me := message.NewEncoder(ude, sar.NewSegmenter())
 	pdus, err := me.Encode(number, msg)
 	if err != nil {
