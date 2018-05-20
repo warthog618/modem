@@ -1,5 +1,4 @@
-modem
-=======
+# modem
 
 A low level Go driver for AT modems.
 
@@ -12,14 +11,14 @@ The initial impetus was to provide functionality to send and receive SMSs via
 a GSM modem, but the library may be generally useful for any device controlled
 by AT commands.
 
-The [AT](at) package provides a low level driver which sits between an io.ReadWriter,
+The [at](at) package provides a low level driver which sits between an io.ReadWriter,
 representing the physical modem, and a higher level driver or application.
 The AT driver provides the ability to issue AT commands to the modem, and to
 receive the info and status returned by the modem, as synchronous function calls.
 Handlers for asynchronous indications from the modem, such as received SMSs,
 can be registered with the driver.
 
-The [GSM](gsm) package adds higher level SendSMS and SendSMSPDU methods to the AT driver, that allows
+The [gsm](gsm) package adds higher level SendSMS and SendSMSPDU methods to the AT driver, that allows
 for sending SMSs without any knowledge of the underlying AT commands.
 
 The [info](info) package provides utility functions to manipulate the info returned in
@@ -36,9 +35,10 @@ The [cmd](cmd) directory contains basic commands to exercise the library and a m
 [retrieving details](cmd/modeminfo/modeminfo.go) from the modem, [sending](cmd/sendsms/sendsms.go)
 and [receiving](cmd/waitsms/waitsms.go) SMSs, and [retrieving](cmd/phonebook/phonebook.go) the SIM phonebook.
 
-## Features ##
+## Features
 
 Supports the following functionality:
+
 - Simple synchronous interface for AT commands
 - Serialises access to the modem from multiple goroutines
 - Context support to allow higher layers to specify timeouts
@@ -46,9 +46,36 @@ Supports the following functionality:
 - Tracing of messages to and from the modem
 - Pluggable serial driver - any io.ReadWriter will suffice
 
-## Usage ##
+## Usage
 
-Refer to package documentation, tests and example commands.
+The [at](at) package allows you to issue commands to the modem and receive the response.
+e.g., this command:
+
+```golang
+info, err := modem.Command(ctx, "I")
+```
+
+produces the following interaction with the modem (exact results will differ for your modem):
+
+    2018/05/17 20:39:56 w: ATI
+    2018/05/17 20:39:56 r:
+    Manufacturer: huawei
+    Model: E173
+    Revision: 21.017.09.00.314
+    IMEI: 1234567
+    +GCAP: +CGSM,+DS,+ES
+
+    OK
+
+and returns this info:
+
+```golang
+info = []string{"Manufacturer: huawei", "Model: E173", "Revision: 21.017.09.00.314", "IMEI: 1234567", "+GCAP: +CGSM,+DS,+ES"}
+```
+
+Refer to the [modeminfo](cmd/modeminfo/modeminfo.go) for an example of how to create a modem object such as the one used in this example.
+
+For more information, refer to package documentation, tests and example commands.
 
 Package | Documentation | Tests | Example code
 ------- | ------------- | ----- | ------------
