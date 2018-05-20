@@ -65,7 +65,8 @@ func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
 	case <-a.closed:
 		return nil, ErrClosed
 	case a.cmdCh <- func() {
-		done <- a.processReq(ctx, request{cmd: cmd})
+		info, err := a.processReq(ctx, cmd, nil)
+		done <- response{info: info, err: err}
 	}:
 		rsp := <-done
 		return rsp.info, rsp.err
@@ -156,13 +157,14 @@ func (a *AT) Init(ctx context.Context) error {
 // The modem then completes the command as per other commands, such as those issued by Command.
 // The format of the sms may be a text message or a hex coded SMS PDU, depending on the
 // configuration of the modem (text or PDU mode).
-func (a *AT) SMSCommand(ctx context.Context, cmd string, sms string) ([]string, error) {
+func (a *AT) SMSCommand(ctx context.Context, cmd string, sms string) (info []string, err error) {
 	done := make(chan response)
 	select {
 	case <-a.closed:
 		return nil, ErrClosed
 	case a.cmdCh <- func() {
-		done <- a.processReq(ctx, request{cmd: cmd, sms: &sms})
+		info, err := a.processReq(ctx, cmd, &sms)
+		done <- response{info: info, err: err}
 	}:
 		rsp := <-done
 		return rsp.info, rsp.err
@@ -171,6 +173,7 @@ func (a *AT) SMSCommand(ctx context.Context, cmd string, sms string) ([]string, 
 
 // cmdLoop is responsible for the interface to the modem.
 // It serialises the issuing of commands and awaits the responses.
+// If no command is pending then any lines received are ignored.
 // The cmdLoop terminates when the downstream closes.
 func cmdLoop(cmds chan func(), in <-chan string, out chan struct{}) {
 	for {
@@ -186,6 +189,8 @@ func cmdLoop(cmds chan func(), in <-chan string, out chan struct{}) {
 	}
 }
 
+// lineReader takes lines from m and redirects them to out.
+// lineReader exits when m closes.
 func lineReader(m io.Reader, out chan string) {
 	scanner := bufio.NewScanner(m)
 	scanner.Split(scanLines)
@@ -202,6 +207,7 @@ func lineReader(m io.Reader, out chan string) {
 // and forwarding them to handlers.  Non-indication lines are passed upstream.
 // Indication trailing lines are assumed to arrive in a contiguous
 // block immediately after the indication.
+// nLoop exits when in closes.
 func (a *AT) nLoop(cmds chan func(), in <-chan string, out chan string) {
 	defer func() {
 		for k, v := range a.inds {
@@ -238,40 +244,45 @@ func (a *AT) nLoop(cmds chan func(), in <-chan string, out chan string) {
 	}
 }
 
-func (a *AT) processReq(ctx context.Context, req request) response {
+func (a *AT) processReq(ctx context.Context, cmd string, sms *string) (info []string, err error) {
 	a.waitWriteGuard()
-	if err := a.writeCommand(req); err != nil {
-		return response{err: err}
+	switch sms {
+	case nil:
+		err = a.writeCommand(cmd)
+	default:
+		err = a.writeSMSCommand(cmd)
 	}
-	cmdID := parseCmdID(req.cmd)
-	var rsp response // populated over potentially multiple lines from the modem
+	if err != nil {
+		return
+	}
+	cmdID := parseCmdID(cmd)
 	for {
 		select {
 		case <-ctx.Done():
-			if req.sms != nil {
+			if sms != nil {
 				// cancel outstanding SMS request
 				a.modem.Write([]byte(string(27) + "\r\n"))
 				a.startWriteGuard()
 			}
-			rsp.err = ctx.Err()
-			return rsp
+			err = ctx.Err()
+			return
 		case line, ok := <-a.cLines:
 			if !ok {
-				return response{err: ErrClosed}
+				return nil, ErrClosed
 			}
 			if line == "" {
 				continue
 			}
-			info, done, err := a.processRxLine(line, cmdID, req.sms)
-			if info != nil {
-				rsp.info = append(rsp.info, *info)
+			i, done, perr := a.processRxLine(line, cmdID, sms)
+			if i != nil {
+				info = append(info, *i)
 			}
-			if err != nil {
-				rsp.err = err
-				return rsp
+			if perr != nil {
+				err = perr
+				return
 			}
 			if done {
-				return rsp
+				return
 			}
 		}
 	}
@@ -340,11 +351,15 @@ func (a *AT) waitWriteGuard() {
 }
 
 // writeCommand writes a one line command to the modem.
-func (a *AT) writeCommand(req request) error {
-	cmdLine := "AT" + req.cmd + "\r\n"
-	if req.sms != nil {
-		cmdLine = cmdLine[:len(cmdLine)-1]
-	}
+func (a *AT) writeCommand(cmd string) error {
+	cmdLine := "AT" + cmd + "\r\n"
+	_, err := a.modem.Write([]byte(cmdLine))
+	return err
+}
+
+// writeSMSCommand writes a the first line of an SMS command to the modem.
+func (a *AT) writeSMSCommand(cmd string) error {
+	cmdLine := "AT" + cmd + "\r"
 	_, err := a.modem.Write([]byte(cmdLine))
 	return err
 }
@@ -395,12 +410,6 @@ func newError(line string) error {
 		err = CMEError(strings.TrimSpace(line[11:]))
 	}
 	return err
-}
-
-// request represents an operation to be performed on the modem.
-type request struct {
-	cmd string
-	sms *string
 }
 
 // response represents the result of a request operation performed on the modem.
