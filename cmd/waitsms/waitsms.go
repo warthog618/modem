@@ -58,39 +58,52 @@ func main() {
 		log.Println(err)
 		return
 	}
+	ctx, cancel = context.WithTimeout(context.Background(), *period)
+	defer cancel()
+	go pollSignalQuality(ctx, g, timeout)
+	waitForSMSs(ctx, g, timeout)
+}
+
+// pollSignalQuality polls the modem to read signal quality every minute.
+// This is run in parallel to waitForSMS to demonstrate separate goroutines
+// interacting with the modem.
+func pollSignalQuality(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {
+	for {
+		select {
+		case <-time.After(time.Minute):
+			tctx, tcancel := context.WithTimeout(ctx, *timeout)
+			i, err := g.Command(tctx, "+CSQ")
+			if err != nil {
+				log.Println(err)
+			} else {
+				log.Printf("Signal quality: %v\n", i)
+			}
+			tcancel()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// waitForSMSs adds an indication to the modem and prints any received SMSs.
+// It will continue to wait until the provided context is done.
+// It reassembles multi-part SMSs into a complete message prior to display.
+func waitForSMSs(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {
 	cmt, err := g.AddIndication("+CMT:", 1)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	ctx, cancel = context.WithTimeout(context.Background(), *timeout)
-	if _, err = g.Command(ctx, "+CNMI=1,2,2,1,0"); err != nil {
+	cctx, cancel := context.WithTimeout(ctx, *timeout)
+	// tell the modem to forward SMSs to us.
+	if _, err = g.Command(cctx, "+CNMI=1,2,2,1,0"); err != nil {
 		log.Println(err)
 		cancel()
 		return
 	}
 	cancel()
-	ctx, cancel = context.WithTimeout(context.Background(), *period)
-	go func() {
-		for {
-			select {
-			case <-time.After(time.Minute):
-				tctx, tcancel := context.WithTimeout(ctx, *timeout)
-				i, err := g.Command(tctx, "+CSQ")
-				if err != nil {
-					log.Println(err)
-				} else {
-					log.Printf("Signal quality: %v\n", i)
-				}
-				tcancel()
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	defer cancel()
 	pd := pdumode.Decoder{}
-	asyncError := func(error) {
+	asyncError := func(err error) {
 		log.Printf("reassembly error: %v", err)
 	}
 	udd, err := tpdu.NewUDDecoder()
