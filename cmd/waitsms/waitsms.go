@@ -120,6 +120,9 @@ func waitForSMSs(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {
 			log.Println("exiting...")
 			return
 		case i := <-cmt:
+			if i == nil {
+				log.Fatal("modem closed, exiting...")
+			}
 			actx, acancel := context.WithTimeout(ctx, *timeout)
 			g.Command(actx, "+CNMA")
 			acancel()
