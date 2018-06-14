@@ -7,7 +7,7 @@
 	most certainly are not AT commands - just patterns that elicit the behaviour
 	required for the test.
 */
-package at
+package at_test
 
 import (
 	"context"
@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/trace"
 )
 
@@ -28,7 +29,7 @@ func TestNew(t *testing.T) {
 	// mocked
 	mm := mockModem{cmdSet: nil, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
-	a := New(&mm)
+	a := at.New(&mm)
 	if a == nil {
 		t.Fatal("New failed")
 	}
@@ -49,7 +50,7 @@ func TestInit(t *testing.T) {
 	}
 	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
-	a := New(&mm)
+	a := at.New(&mm)
 	if a == nil {
 		t.Fatal("New failed")
 	}
@@ -89,7 +90,7 @@ func TestInitFailure(t *testing.T) {
 	}
 	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
-	a := New(&mm)
+	a := at.New(&mm)
 	if a == nil {
 		t.Fatal("New failed")
 	}
@@ -113,7 +114,7 @@ func TestCloseInInitTimeout(t *testing.T) {
 	}
 	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
-	a := New(&mm)
+	a := at.New(&mm)
 	if a == nil {
 		t.Error("returned nil modem")
 	}
@@ -132,6 +133,11 @@ func TestCommand(t *testing.T) {
 		"ATINFO=1\r\n": {"info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
 		"ATCMS\r\n":    {"+CMS ERROR: 204\r\n"},
 		"ATCME\r\n":    {"+CME ERROR: 42\r\n"},
+		"ATD1\r\n":     {"CONNECT: 57600\r\n"},
+		"ATD2\r\n":     {"info1\r\n", "BUSY\r\n"},
+		"ATD3\r\n":     {"NO ANSWER\r\n"},
+		"ATD4\r\n":     {"NO CARRIER\r\n"},
+		"ATD5\r\n":     {"NO DIALTONE\r\n"},
 	}
 	m, mm := setupModem(t, cmdSet)
 	defer teardownModem(mm)
@@ -150,9 +156,14 @@ func TestCommand(t *testing.T) {
 		{"empty", background, "", nil, nil, nil},
 		{"pass", background, "PASS", nil, nil, nil},
 		{"info", background, "INFO=1", nil, []string{"info1", "info2", "INFO: info3"}, nil},
-		{"err", background, "ERR", nil, nil, ErrError},
-		{"cms", background, "CMS", nil, nil, CMSError("204")},
-		{"cme", background, "CME", nil, nil, CMEError("42")},
+		{"err", background, "ERR", nil, nil, at.ErrError},
+		{"cms", background, "CMS", nil, nil, at.CMSError("204")},
+		{"cme", background, "CME", nil, nil, at.CMEError("42")},
+		{"dial ok", background, "D1", nil, []string{"CONNECT: 57600"}, nil},
+		{"dial busy", background, "D2", nil, []string{"info1"}, at.ConnectError("BUSY")},
+		{"dial no answer", background, "D3", nil, nil, at.ConnectError("NO ANSWER")},
+		{"dial no carrier", background, "D4", nil, nil, at.ConnectError("NO CARRIER")},
+		{"dial no dialtone", background, "D5", nil, nil, at.ConnectError("NO DIALTONE")},
 		{"no echo", background, "INFO=1", func() { mm.echo = false }, []string{"info1", "info2", "INFO: info3"}, nil},
 		{"timeout", timeout, "", nil, nil, context.DeadlineExceeded},
 		{"cancelled", cancelled, "", func() {
@@ -164,8 +175,8 @@ func TestCommand(t *testing.T) {
 		}, nil, errors.New("Write error")},
 		{"closed before response", background, "NULL", func() {
 			mm.closeOnWrite = true
-		}, nil, ErrClosed},
-		{"closed before request", background, "PASS", func() { <-m.Closed() }, nil, ErrClosed},
+		}, nil, at.ErrClosed},
+		{"closed before request", background, "PASS", func() { <-m.Closed() }, nil, at.ErrClosed},
 	}
 	for _, p := range patterns {
 		f := func(t *testing.T) {
@@ -275,12 +286,12 @@ func TestSMSCommand(t *testing.T) {
 		info    []string
 		err     error
 	}{
-		{"empty", background, "", "", nil, nil, ErrError},
+		{"empty", background, "", "", nil, nil, at.ErrError},
 		{"ok", background, "SMS", "sms+", nil, []string{"info4", "info5", "INFO: info6"}, nil},
 		{"info", background, "SMS", "info", nil, []string{"info1", "info2", "INFO: info3"}, nil},
-		{"err", background, "ERR", "errsms", nil, nil, ErrError},
-		{"cms", background, "CMS", "cmssms", nil, nil, CMSError("204")},
-		{"cme", background, "CME", "cmesms", nil, nil, CMEError("42")},
+		{"err", background, "ERR", "errsms", nil, nil, at.ErrError},
+		{"cms", background, "CMS", "cmssms", nil, nil, at.CMSError("204")},
+		{"cme", background, "CME", "cmesms", nil, nil, at.CMEError("42")},
 		{"no echo", background, "SMS2", "info", func() { mm.echo = false }, []string{"info1", "info2", "INFO: info3"}, nil},
 		{"timeout", timeout, "SMS2", "info", nil, nil, context.DeadlineExceeded},
 		{"cancelled", cancelled, "SMS2", "info", func() {
@@ -292,8 +303,8 @@ func TestSMSCommand(t *testing.T) {
 		}, nil, errors.New("Write error")},
 		{"closed before response", background, "CoW", "closeOnWrite", func() {
 			mm.closeOnWrite = true
-		}, nil, ErrClosed},
-		{"closed before request", background, "C", "closed", func() { <-m.Closed() }, nil, ErrClosed},
+		}, nil, at.ErrClosed},
+		{"closed before request", background, "C", "closed", func() { <-m.Closed() }, nil, at.ErrClosed},
 	}
 	for _, p := range patterns {
 		f := func(t *testing.T) {
@@ -363,7 +374,7 @@ func TestAddIndication(t *testing.T) {
 		t.Errorf("no notification received")
 	}
 	c2, err := m.AddIndication("notify", 0)
-	assert.Equal(t, ErrIndicationExists, err)
+	assert.Equal(t, at.ErrIndicationExists, err)
 	assert.Nil(t, c2, "shouldn't return channel on error")
 	c2, err = m.AddIndication("foo", 2)
 	assert.Nil(t, err)
@@ -389,7 +400,7 @@ func TestAddIndication(t *testing.T) {
 		t.Error("channel 2 still open")
 	}
 	c2, err = m.AddIndication("foo", 2)
-	assert.Equal(t, ErrClosed, err)
+	assert.Equal(t, at.ErrClosed, err)
 	assert.Nil(t, c2, "shouldn't return channel on error")
 }
 
@@ -452,7 +463,7 @@ func TestCMEError(t *testing.T) {
 	patterns := []string{"1", "204", "42"}
 	for _, p := range patterns {
 		f := func(t *testing.T) {
-			err := CMEError(p)
+			err := at.CMEError(p)
 			expected := fmt.Sprintf("CME Error: %s", string(err))
 			s := err.Error()
 			if s != expected {
@@ -467,8 +478,23 @@ func TestCMSError(t *testing.T) {
 	patterns := []string{"1", "204", "42"}
 	for _, p := range patterns {
 		f := func(t *testing.T) {
-			err := CMSError(p)
+			err := at.CMSError(p)
 			expected := fmt.Sprintf("CMS Error: %s", string(err))
+			s := err.Error()
+			if s != expected {
+				t.Errorf("failed to stringify %02x, expected '%s', got '%s'", p, expected, s)
+			}
+		}
+		t.Run(fmt.Sprintf("%x", p), f)
+	}
+}
+
+func TestCoonectError(t *testing.T) {
+	patterns := []string{"1", "204", "42"}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			err := at.ConnectError(p)
+			expected := fmt.Sprintf("Connect: %s", string(err))
 			s := err.Error()
 			if s != expected {
 				t.Errorf("failed to stringify %02x, expected '%s', got '%s'", p, expected, s)
@@ -541,7 +567,7 @@ func (m *mockModem) Close() error {
 	return nil
 }
 
-func setupModem(t *testing.T, cmdSet map[string][]string) (*AT, *mockModem) {
+func setupModem(t *testing.T, cmdSet map[string][]string) (*at.AT, *mockModem) {
 	mm := &mockModem{cmdSet: cmdSet, echo: true, r: make(chan []byte, 10)}
 	var modem io.ReadWriter = mm
 	debug := false // set to true to enable tracing of the flow to the mockModem.
@@ -551,7 +577,7 @@ func setupModem(t *testing.T, cmdSet map[string][]string) (*AT, *mockModem) {
 		//tr := trace.New(modem, l, trace.ReadFormat("r: %v"))
 		modem = tr
 	}
-	a := New(modem)
+	a := at.New(modem)
 	if a == nil {
 		t.Fatal("new failed")
 	}

@@ -317,6 +317,10 @@ func (a *AT) processRxLine(line, cmdID string, sms *string) (*string, bool, erro
 				return nil, false, err
 			}
 		}
+	case rxlConnect:
+		return &line, true, nil
+	case rxlConnectError:
+		return nil, false, ConnectError(line)
 	}
 	return nil, false, nil
 }
@@ -380,12 +384,20 @@ type CMEError string
 // on the modem configuration.
 type CMSError string
 
+// ConnectError indicates an attempt to dial failed.
+// The value of the error is the failure indication returned by the modem.
+type ConnectError string
+
 func (e CMEError) Error() string {
 	return string("CME Error: " + e)
 }
 
 func (e CMSError) Error() string {
 	return string("CMS Error: " + e)
+}
+
+func (e ConnectError) Error() string {
+	return string("Connect: " + e)
 }
 
 var (
@@ -431,6 +443,8 @@ const (
 	rxlStatusError
 	rxlAsync
 	rxlSMSPrompt
+	rxlConnect
+	rxlConnectError
 )
 
 // indication represents an unsolicited result code (URC) from the modem, such as a
@@ -471,6 +485,18 @@ func parseRxLine(line string, cmdID string) rxl {
 		return rxlSMSPrompt
 	case strings.HasPrefix(line, "AT"+cmdID):
 		return rxlEchoCmdLine
+	case len(cmdID) == 0 || cmdID[0] != 'D':
+		// Short circuit non-ATD commands.
+		// No attempt to identify SMS PDUs at this level, so they will
+		// be caught here, along with other unidentified lines.
+		return rxlUnknown
+	case strings.HasPrefix(line, "CONNECT"):
+		return rxlConnect
+	case line == "BUSY",
+		line == "NO ANSWER",
+		line == "NO CARRIER",
+		line == "NO DIALTONE":
+		return rxlConnectError
 	default:
 		// No attempt to identify SMS PDUs at this level, so they will
 		// be caught here, along with other unidentified lines.
