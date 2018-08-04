@@ -17,4 +17,6 @@ matrix:
 before_install:
   - go get github.com/mattn/goveralls
 
-script: $GOPATH/bin/goveralls -service=travis-ci 
+script:
+  - go test $(go list ./... | grep -v /cmd/) -coverprofile=cover.profile
+  - $GOPATH/bin/goveralls -coverprofile cover.coverprofile -service=travis-ci
