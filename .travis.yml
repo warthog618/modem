@@ -3,7 +3,7 @@ language: go
 go:
   - "1.x"
   - "1.10"
-  - master
+  - tip
 
 os:
   - linux
@@ -11,7 +11,10 @@ os:
 
 matrix:
   allow_failures:
-    - go: master
+    - go: tip
   fast_finish: true
 
-script: go test $(go list ./... | grep -v /cmd/)
+before_install:
+  - go get github.com/mattn/goveralls
+
+script: $GOPATH/bin/goveralls -service=travis-ci 
