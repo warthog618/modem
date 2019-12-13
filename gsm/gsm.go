@@ -27,12 +27,14 @@ func New(modem io.ReadWriter) *GSM {
 }
 
 // SetSCA sets the SCA used when transmitting SMSs.
+//
 // This overrides the default set in the SIM.
 func (g *GSM) SetSCA(sca pdumode.SMSCAddress) {
 	g.sca = sca
 }
 
 // SetPDUMode sets the GSM to use PDU mode when transmitting SMSs.
+//
 // This must be called before Init.
 func (g *GSM) SetPDUMode() {
 	g.pduMode = true
@@ -77,6 +79,7 @@ func (g *GSM) Init(ctx context.Context) error {
 }
 
 // SendSMS sends an SMS message to the number.
+//
 // The mr is returned on success, else an error.
 func (g *GSM) SendSMS(ctx context.Context, number string, message string) (string, error) {
 	if g.pduMode {
@@ -96,6 +99,7 @@ func (g *GSM) SendSMS(ctx context.Context, number string, message string) (strin
 }
 
 // SendSMSPDU sends an SMS PDU.
+//
 // tpdu is the binary TPDU to be sent.
 // The mr is returned on success, else an error.
 func (g *GSM) SendSMSPDU(ctx context.Context, tpdu []byte) (string, error) {
@@ -123,10 +127,14 @@ var (
 	// ErrNotGSMCapable indicates that the modem does not support the GSM
 	// command set, as determined from the GCAP response.
 	ErrNotGSMCapable = errors.New("modem is not GSM capable")
+
 	// ErrNotPINReady indicates the modem SIM card is not ready to perform operations.
 	ErrNotPINReady = errors.New("modem is not PIN Ready")
-	// ErrMalformedResponse indicates the modem returned a badly formed response.
+
+	// ErrMalformedResponse indicates the modem returned a badly formed
+	// response.
 	ErrMalformedResponse = errors.New("modem returned malformed response")
+
 	// ErrWrongMode indicates the GSM modem is operating in the wrong mode and so cannot support the command.
 	ErrWrongMode = errors.New("modem is in the wrong mode")
 )

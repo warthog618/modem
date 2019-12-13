@@ -38,7 +38,7 @@ func TestRead(t *testing.T) {
 	if n != 3 {
 		t.Error("unexpected length:", n)
 	}
-	if bytes.Compare(b.Bytes(), []byte("r: one\n")) != 0 {
+	if !bytes.Equal(b.Bytes(), []byte("r: one\n")) {
 		t.Errorf("unexpected log: '%s'", b.Bytes())
 	}
 }
@@ -58,7 +58,7 @@ func TestWrite(t *testing.T) {
 	if n != 3 {
 		t.Error("unexpected length:", n)
 	}
-	if bytes.Compare(b.Bytes(), []byte("w: two\n")) != 0 {
+	if !bytes.Equal(b.Bytes(), []byte("w: two\n")) {
 		t.Errorf("unexpected log: '%s'", b.Bytes())
 	}
 }
@@ -79,7 +79,7 @@ func TestReadFormat(t *testing.T) {
 	if n != 3 {
 		t.Error("unexpected length:", n)
 	}
-	if bytes.Compare(b.Bytes(), []byte("R: [111 110 101]\n")) != 0 {
+	if !bytes.Equal(b.Bytes(), []byte("R: [111 110 101]\n")) {
 		t.Errorf("unexpected log: '%s'", b.Bytes())
 	}
 }
@@ -99,7 +99,7 @@ func TestWriteFormat(t *testing.T) {
 	if n != 3 {
 		t.Error("unexpected length:", n)
 	}
-	if bytes.Compare(b.Bytes(), []byte("W: [116 119 111]\n")) != 0 {
+	if !bytes.Equal(b.Bytes(), []byte("W: [116 119 111]\n")) {
 		t.Errorf("unexpected log: '%s'", b.Bytes())
 	}
 }

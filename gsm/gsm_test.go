@@ -101,7 +101,7 @@ func TestInit(t *testing.T) {
 				g.SetPDUMode()
 			}
 			if p.key != "" {
-				oldvalue, _ = cmdSet[p.key]
+				oldvalue = cmdSet[p.key]
 				cmdSet[p.key] = p.value
 			}
 			err := g.Init(p.ctx)

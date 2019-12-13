@@ -489,7 +489,7 @@ func TestCMSError(t *testing.T) {
 	}
 }
 
-func TestCoonectError(t *testing.T) {
+func TestConnectError(t *testing.T) {
 	patterns := []string{"1", "204", "42"}
 	for _, p := range patterns {
 		f := func(t *testing.T) {

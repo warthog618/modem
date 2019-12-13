@@ -4,7 +4,8 @@ package info
 
 import "strings"
 
-// HasPrefix returns true if the line begins with the info prefix for the command.
+// HasPrefix returns true if the line begins with the info prefix for the
+// command.
 func HasPrefix(line, cmd string) bool {
 	return strings.HasPrefix(line, cmd+":")
 }

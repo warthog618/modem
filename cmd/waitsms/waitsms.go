@@ -1,7 +1,8 @@
-// waitsms waits for SMSs to be received by the modem, and dumps them to stdout.
+// waitsms waits for SMSs to be received by the modem, and dumps them to
+// stdout.
 //
-// This provides an example of using indications, as well as a test
-// that the library works with the modem.
+// This provides an example of using indications, as well as a test that the
+// library works with the modem.
 //
 // The modem device provided must support nofications, or no SMSs will be seen.
 // (the notification port is typically USB2, hence the default)
@@ -65,6 +66,7 @@ func main() {
 }
 
 // pollSignalQuality polls the modem to read signal quality every minute.
+//
 // This is run in parallel to waitForSMS to demonstrate separate goroutines
 // interacting with the modem.
 func pollSignalQuality(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {
@@ -86,6 +88,7 @@ func pollSignalQuality(ctx context.Context, g *gsm.GSM, timeout *time.Duration) 
 }
 
 // waitForSMSs adds an indication to the modem and prints any received SMSs.
+//
 // It will continue to wait until the provided context is done.
 // It reassembles multi-part SMSs into a complete message prior to display.
 func waitForSMSs(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {

@@ -8,6 +8,7 @@ import (
 )
 
 // Trace is a trace log on an io.ReadWriter.
+//
 // All reads and writes are written to the logger.
 type Trace struct {
 	rw   io.ReadWriter

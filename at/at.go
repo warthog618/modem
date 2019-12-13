@@ -14,6 +14,7 @@ import (
 )
 
 // AT represents a modem that can be managed using AT commands.
+//
 // Commands can be issued to the modem using the Command and SMSCommand methods.
 // The AT closes the closed channel when the connection to the underlying
 // modem is broken (Read returns EOF) .
@@ -56,6 +57,7 @@ func (a *AT) Closed() <-chan struct{} {
 }
 
 // Command issues the command to the modem and returns the result.
+//
 // The command should NOT include the AT prefix, or <CR><LF> suffix which is automatically added.
 // The return value includes the info (the lines returned by the modem between the command and
 // the status line), and an error which is non-nil if the command did not complete successfully.
@@ -75,6 +77,7 @@ func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
 
 // AddIndication adds a handler for a set of lines beginning with the prefixed
 // line and the following trailing lines.
+//
 // Each set of lines is returned via the returned channel.
 // The return channel is closed when the AT closes.
 func (a *AT) AddIndication(prefix string, trailingLines int) (<-chan []string, error) {
@@ -102,6 +105,7 @@ func (a *AT) AddIndication(prefix string, trailingLines int) (<-chan []string, e
 }
 
 // CancelIndication removes any indication corresponding to the prefix.
+//
 // If any such indication exists its return channel is closed and no further
 // indications will be sent to it.
 func (a *AT) CancelIndication(prefix string) {
@@ -123,6 +127,7 @@ func (a *AT) CancelIndication(prefix string) {
 
 // Init initialises the modem by escaping any outstanding SMS commands
 // and resetting the modem to factory defaults.
+//
 // The Init is intended to be called after creation and before any other commands
 // are issued in order to get the modem into a known state.
 // This is a bare minimum init.
@@ -150,6 +155,7 @@ func (a *AT) Init(ctx context.Context) error {
 }
 
 // SMSCommand issues an SMS command to the modem, and returns the result.
+//
 // An SMS command is issued in two steps; first the command line:
 //   AT<command><CR>
 // which the modem responds to with a ">" prompt, after which the SMS PDU is sent to the modem:
@@ -172,6 +178,7 @@ func (a *AT) SMSCommand(ctx context.Context, cmd string, sms string) (info []str
 }
 
 // cmdLoop is responsible for the interface to the modem.
+//
 // It serialises the issuing of commands and awaits the responses.
 // If no command is pending then any lines received are ignored.
 // The cmdLoop terminates when the downstream closes.
@@ -190,23 +197,22 @@ func cmdLoop(cmds chan func(), in <-chan string, out chan struct{}) {
 }
 
 // lineReader takes lines from m and redirects them to out.
+//
 // lineReader exits when m closes.
 func lineReader(m io.Reader, out chan string) {
 	scanner := bufio.NewScanner(m)
 	scanner.Split(scanLines)
 	for scanner.Scan() {
-		select {
-		case out <- scanner.Text():
-			break
-		}
+		out <- scanner.Text()
 	}
 	close(out) // tell pipeline we're done - end of pipeline will close the AT.
 }
 
 // nLoop is responsible for pulling indications from the stream of lines read from the modem,
-// and forwarding them to handlers.  Non-indication lines are passed upstream.
-// Indication trailing lines are assumed to arrive in a contiguous
-// block immediately after the indication.
+// and forwarding them to handlers.
+//
+// Non-indication lines are passed upstream. Indication trailing lines are
+// assumed to arrive in a contiguous block immediately after the indication.
 // nLoop exits when in closes.
 func (a *AT) nLoop(cmds chan func(), in <-chan string, out chan string) {
 	defer func() {
@@ -290,6 +296,7 @@ func (a *AT) processReq(ctx context.Context, cmd string, sms *string) (info []st
 
 // processRxLine parses a line received from the modem and determines how it
 // adds to the response for the current command.
+//
 // The return values are:
 // - a line of info to be added to the response (optional)
 // - a flag indicating if the command is complete.
