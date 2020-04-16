@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright © 2018 Kent Gibson <warthog618@gmail.com>.
+
 // Package trace provides a decorator for io.ReadWriter that logs all reads
 // and writes.
 package trace

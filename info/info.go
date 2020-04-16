@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright © 2018 Kent Gibson <warthog618@gmail.com>.
+
 // Package info provides utility functions for manipulating info lines returned
 // by the modem in response to AT commands.
 package info

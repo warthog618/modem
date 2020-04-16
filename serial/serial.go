@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright © 2018 Kent Gibson <warthog618@gmail.com>.
+
 // Package serial provides a serial port, which provides the io.ReadWriter interface,
 // that provides the connection between the at or gsm packages and the physical modem.
 package serial
