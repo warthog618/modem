@@ -14,7 +14,7 @@ import (
 
 	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/info"
-	"github.com/warthog618/sms/ms/pdumode"
+	"github.com/warthog618/sms/encoding/pdumode"
 )
 
 // GSM modem decorates the AT modem with GSM specific functionality.
@@ -109,11 +109,12 @@ func (g *GSM) SendSMSPDU(ctx context.Context, tpdu []byte) (string, error) {
 	if !g.pduMode {
 		return "", ErrWrongMode
 	}
-	pdu, err := pdumode.EncodeToString(g.sca, tpdu)
+	pdu := pdumode.PDU{SMSC: g.sca, TPDU: tpdu}
+	s, err := pdu.MarshalHexString()
 	if err != nil {
 		return "", err
 	}
-	i, err := g.SMSCommand(ctx, fmt.Sprintf("+CMGS=%d", len(tpdu)), pdu)
+	i, err := g.SMSCommand(ctx, fmt.Sprintf("+CMGS=%d", len(tpdu)), s)
 	if err != nil {
 		return "", err
 	}

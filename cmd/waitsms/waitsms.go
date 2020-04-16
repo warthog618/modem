@@ -23,8 +23,8 @@ import (
 	"time"
 
 	"github.com/warthog618/sms"
+	"github.com/warthog618/sms/encoding/pdumode"
 	"github.com/warthog618/sms/encoding/tpdu"
-	"github.com/warthog618/sms/ms/pdumode"
 
 	"github.com/warthog618/modem/gsm"
 	"github.com/warthog618/modem/serial"
@@ -133,21 +133,22 @@ func waitForSMSs(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {
 				log.Printf("err: %v\n", err)
 				continue
 			}
-			_, pdu, err := pdumode.DecodeString(i[1])
+			pdu, err := pdumode.UnmarshalHexString(i[1])
 			if err != nil {
 				log.Printf("err: %v\n", err)
 				continue
 			}
-			if int(l) != len(pdu) {
-				log.Printf("length mismatch - expected %d, got %d", l, len(pdu))
+			if int(l) != len(pdu.TPDU) {
+				log.Printf("length mismatch - expected %d, got %d", l, len(pdu.TPDU))
 				continue
 			}
-			tp, err := sms.Unmarshal(pdu)
+			tp := tpdu.TPDU{}
+			err = tp.UnmarshalBinary(pdu.TPDU)
 			if err != nil {
 				log.Printf("err: %v\n", err)
 				continue
 			}
-			tpdus, err := c.Collect(*tp)
+			tpdus, err := c.Collect(tp)
 			if err != nil {
 				log.Printf("err: %v\n", err)
 				continue
