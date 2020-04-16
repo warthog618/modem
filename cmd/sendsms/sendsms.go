@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright © 2018 Kent Gibson <warthog618@gmail.com>.
+
 // sendsms sends an SMS using the modem.
 //
 // This provides an example of using the SendSMS command, as well as a test
@@ -15,9 +19,7 @@ import (
 	"github.com/warthog618/modem/gsm"
 	"github.com/warthog618/modem/serial"
 	"github.com/warthog618/modem/trace"
-	"github.com/warthog618/sms/encoding/tpdu"
-	"github.com/warthog618/sms/ms/message"
-	"github.com/warthog618/sms/ms/sar"
+	"github.com/warthog618/sms"
 )
 
 func main() {
@@ -50,23 +52,17 @@ func main() {
 	if err = g.Init(ctx); err != nil {
 		log.Fatal(err)
 	}
-	if !*pdumode {
-		mr, err := g.SendSMS(ctx, *num, *msg)
-		// !!! check CPIN?? on failure to determine root cause??  If ERROR 302
-		log.Printf("%v %v\n", mr, err)
+	if *pdumode {
+		sendPDU(ctx, g, *num, *msg)
 		return
 	}
-	sendPDU(ctx, g, *num, *msg)
+	mr, err := g.SendSMS(ctx, *num, *msg)
+	// !!! check CPIN?? on failure to determine root cause??  If ERROR 302
+	log.Printf("%v %v\n", mr, err)
 }
 
 func sendPDU(ctx context.Context, g *gsm.GSM, number string, msg string) {
-	ude, err := tpdu.NewUDEncoder()
-	if err != nil {
-		log.Fatal(err)
-	}
-	ude.AddAllCharsets()
-	me := message.NewEncoder(ude, sar.NewSegmenter())
-	pdus, err := me.Encode(number, msg)
+	pdus, err := sms.Encode([]byte(msg), sms.To(number), sms.WithAllCharsets)
 	if err != nil {
 		log.Fatal(err)
 	}

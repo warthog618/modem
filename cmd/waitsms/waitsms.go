@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright © 2018 Kent Gibson <warthog618@gmail.com>.
+
 // waitsms waits for SMSs to be received by the modem, and dumps them to
 // stdout.
 //
@@ -18,11 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/warthog618/sms/ms/message"
-	"github.com/warthog618/sms/ms/sar"
-
+	"github.com/warthog618/sms"
 	"github.com/warthog618/sms/encoding/tpdu"
-
 	"github.com/warthog618/sms/ms/pdumode"
 
 	"github.com/warthog618/modem/gsm"
@@ -67,7 +68,7 @@ func main() {
 
 // pollSignalQuality polls the modem to read signal quality every minute.
 //
-// This is run in parallel to waitForSMS to demonstrate separate goroutines
+// This is run in parallel to waitForSMSs to demonstrate separate goroutines
 // interacting with the modem.
 func pollSignalQuality(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {
 	for {
@@ -105,18 +106,11 @@ func waitForSMSs(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {
 		return
 	}
 	cancel()
-	pd := pdumode.Decoder{}
-	asyncError := func(err error) {
-		log.Printf("reassembly error: %v", err)
+	reassemblyTimeout := func(tpdus []*tpdu.TPDU) {
+		log.Printf("reassembly timeout: %v", tpdus)
 	}
-	udd, err := tpdu.NewUDDecoder()
-	if err != nil {
-		log.Fatalf("err: %v\n", err)
-	}
-	udd.AddAllCharsets()
-	c := sar.NewCollector(time.Hour, asyncError)
-	reassembler := message.NewReassembler(udd, c)
-	defer reassembler.Close()
+	c := sms.NewCollector(sms.WithReassemblyTimeout(time.Hour, reassemblyTimeout))
+	defer c.Close()
 	for {
 		select {
 		case <-ctx.Done():
@@ -137,20 +131,33 @@ func waitForSMSs(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {
 			l, err := strconv.Atoi(lstr[len(lstr)-1])
 			if err != nil {
 				log.Printf("err: %v\n", err)
+				continue
 			}
-			_, pdu, err := pd.DecodeString(i[1])
+			_, pdu, err := pdumode.DecodeString(i[1])
 			if err != nil {
 				log.Printf("err: %v\n", err)
+				continue
 			}
 			if int(l) != len(pdu) {
 				log.Printf("length mismatch - expected %d, got %d", l, len(pdu))
+				continue
 			}
-			m, err := reassembler.Reassemble(pdu)
+			tp, err := sms.Unmarshal(pdu)
+			if err != nil {
+				log.Printf("err: %v\n", err)
+				continue
+			}
+			tpdus, err := c.Collect(*tp)
+			if err != nil {
+				log.Printf("err: %v\n", err)
+				continue
+			}
+			m, err := sms.Decode(tpdus)
 			if err != nil {
 				log.Printf("err: %v\n", err)
 			}
 			if m != nil {
-				log.Printf("%s: %s\n", m.Number, m.Msg)
+				log.Printf("%s: %s\n", tpdus[0].OA.Number(), m)
 			}
 		}
 	}

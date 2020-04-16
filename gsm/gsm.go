@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright © 2018 Kent Gibson <warthog618@gmail.com>.
+
 // Package gsm provides a driver for GSM modems.
 package gsm
 
@@ -17,7 +21,6 @@ import (
 type GSM struct {
 	*at.AT
 	sca     pdumode.SMSCAddress
-	pe      pdumode.Encoder
 	pduMode bool
 }
 
@@ -106,7 +109,7 @@ func (g *GSM) SendSMSPDU(ctx context.Context, tpdu []byte) (string, error) {
 	if !g.pduMode {
 		return "", ErrWrongMode
 	}
-	pdu, err := g.pe.EncodeToString(g.sca, tpdu)
+	pdu, err := pdumode.EncodeToString(g.sca, tpdu)
 	if err != nil {
 		return "", err
 	}
