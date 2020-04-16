@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright © 2018 Kent Gibson <warthog618@gmail.com>.
+
 // phonebook dumps the contents of the modem SIM phonebook.
 //
 // This provides an example of processing the info returned by the modem.

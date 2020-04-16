@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright © 2018 Kent Gibson <warthog618@gmail.com>.
+
 // modeminfo collects and displays information related to the modem and its
 // current configuration.
 //
