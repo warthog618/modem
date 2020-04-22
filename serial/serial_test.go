@@ -5,27 +5,78 @@
 package serial_test
 
 import (
+	"errors"
 	"os"
+	"syscall"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/warthog618/modem/serial"
 )
 
-func TestNew(t *testing.T) {
-	if _, err := os.Stat("/dev/ttyUSB0"); os.IsNotExist(err) {
-		t.Skip("no modem available")
+func modemExists(name string) func(t *testing.T) {
+	return func(t *testing.T) {
+		if _, err := os.Stat(name); os.IsNotExist(err) {
+			t.Skip("no modem available")
+		}
 	}
-	m, err := serial.New("/dev/ttyUSB0", 115200)
-	require.NotNil(t, err)
-	require.NotNil(t, m)
-	m.Close()
 }
-
-func TestNewFail(t *testing.T) {
-	// bogus path
-	m, err := serial.New("bogusmodem", 115200)
-	assert.IsType(t, &os.PathError{}, err)
-	assert.Nil(t, m)
+func TestNew(t *testing.T) {
+	patterns := []struct {
+		name    string
+		prereq  func(t *testing.T)
+		options []serial.Option
+		err     error
+	}{
+		{
+			"default",
+			modemExists("/dev/ttyUSB0"),
+			nil,
+			nil,
+		},
+		{
+			"empty",
+			modemExists("/dev/ttyUSB0"),
+			[]serial.Option{},
+			nil,
+		},
+		{
+			"baud",
+			modemExists("/dev/ttyUSB0"),
+			[]serial.Option{serial.WithBaud(9600)},
+			nil,
+		},
+		{
+			"port",
+			modemExists("/dev/ttyUSB0"),
+			[]serial.Option{serial.WithPort("/dev/ttyUSB0")},
+			nil,
+		},
+		{
+			"bad port",
+			nil,
+			[]serial.Option{serial.WithPort("nosuchmodem")},
+			&os.PathError{Op: "open", Path: "nosuchmodem", Err: syscall.Errno(2)},
+		},
+		{
+			"bad baud",
+			nil,
+			[]serial.Option{serial.WithBaud(1234)},
+			errors.New("Unrecognized baud rate"),
+		},
+	}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			if p.prereq != nil {
+				p.prereq(t)
+			}
+			m, err := serial.New(p.options...)
+			require.Equal(t, p.err, err)
+			require.Equal(t, err == nil, m != nil)
+			if m != nil {
+				m.Close()
+			}
+		}
+		t.Run(p.name, f)
+	}
 }

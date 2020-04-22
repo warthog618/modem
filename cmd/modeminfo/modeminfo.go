@@ -29,7 +29,7 @@ func main() {
 	timeout := flag.Duration("t", 400*time.Millisecond, "command timeout period")
 	verbose := flag.Bool("v", false, "log modem interactions")
 	flag.Parse()
-	m, err := serial.New(*dev, *baud)
+	m, err := serial.New(serial.WithPort(*dev), serial.WithBaud(*baud))
 	if err != nil {
 		log.Println(err)
 		return
@@ -77,10 +77,11 @@ func main() {
 		fmt.Println("AT" + cmd)
 		if err != nil {
 			fmt.Printf(" %s\n", err)
-		} else {
-			for _, l := range info {
-				fmt.Printf(" %s\n", l)
-			}
+			continue
 		}
+		for _, l := range info {
+			fmt.Printf(" %s\n", l)
+		}
+
 	}
 }

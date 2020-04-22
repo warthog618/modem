@@ -39,7 +39,7 @@ func main() {
 	verbose := flag.Bool("v", false, "log modem interactions")
 	hex := flag.Bool("x", false, "hex dump modem responses")
 	flag.Parse()
-	m, err := serial.New(*dev, *baud)
+	m, err := serial.New(serial.WithPort(*dev), serial.WithBaud(*baud))
 	if err != nil {
 		log.Println(err)
 		return
