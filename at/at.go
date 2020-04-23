@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright © 2018 Kent Gibson <warthog618@gmail.com>.
+
 // Package at provides a low level driver for AT modems.
 package at
 
@@ -16,10 +20,13 @@ import (
 // AT represents a modem that can be managed using AT commands.
 //
 // Commands can be issued to the modem using the Command and SMSCommand methods.
+//
 // The AT closes the closed channel when the connection to the underlying
-// modem is broken (Read returns EOF) .
+// modem is broken (Read returns EOF).
+//
 // When closed, all outstanding commands return ErrClosed and the state of the
 // underlying modem becomes unknown.
+//
 // Once closed the AT cannot be re-opened - it must be recreated.
 type AT struct {
 	cmdCh   chan func()
@@ -58,9 +65,12 @@ func (a *AT) Closed() <-chan struct{} {
 
 // Command issues the command to the modem and returns the result.
 //
-// The command should NOT include the AT prefix, or <CR><LF> suffix which is automatically added.
-// The return value includes the info (the lines returned by the modem between the command and
-// the status line), and an error which is non-nil if the command did not complete successfully.
+// The command should NOT include the AT prefix, or <CR><LF> suffix which is
+// automatically added.
+//
+// The return value includes the info (the lines returned by the modem between
+// the command and the status line), and an error which is non-nil if the
+// command did not complete successfully.
 func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
 	done := make(chan response)
 	select {
@@ -130,11 +140,14 @@ func (a *AT) CancelIndication(prefix string) {
 //
 // The Init is intended to be called after creation and before any other commands
 // are issued in order to get the modem into a known state.
+//
 // This is a bare minimum init.
 func (a *AT) Init(ctx context.Context) error {
-	// escape any outstanding SMS operations then CR to flush the command buffer
+	// escape any outstanding SMS operations then CR to flush the command
+	// buffer
 	a.modem.Write([]byte(string(27) + "\r\n\r\n"))
-	// allow time for response, or at least any residual OK, to propagate and be discarded.
+	// allow time for response, or at least any residual OK, to propagate and
+	// be discarded.
 	a.startWriteGuard()
 
 	cmds := []string{
@@ -157,12 +170,19 @@ func (a *AT) Init(ctx context.Context) error {
 // SMSCommand issues an SMS command to the modem, and returns the result.
 //
 // An SMS command is issued in two steps; first the command line:
+//
 //   AT<command><CR>
-// which the modem responds to with a ">" prompt, after which the SMS PDU is sent to the modem:
+//
+// which the modem responds to with a ">" prompt, after which the SMS PDU is
+// sent to the modem:
+//
 //   <sms><Ctrl-Z>
-// The modem then completes the command as per other commands, such as those issued by Command.
-// The format of the sms may be a text message or a hex coded SMS PDU, depending on the
-// configuration of the modem (text or PDU mode).
+//
+// The modem then completes the command as per other commands, such as those
+// issued by Command.
+//
+// The format of the sms may be a text message or a hex coded SMS PDU,
+// depending on the configuration of the modem (text or PDU mode).
 func (a *AT) SMSCommand(ctx context.Context, cmd string, sms string) (info []string, err error) {
 	done := make(chan response)
 	select {
@@ -208,8 +228,8 @@ func lineReader(m io.Reader, out chan string) {
 	close(out) // tell pipeline we're done - end of pipeline will close the AT.
 }
 
-// nLoop is responsible for pulling indications from the stream of lines read from the modem,
-// and forwarding them to handlers.
+// nLoop is responsible for pulling indications from the stream of lines read
+// from the modem, and forwarding them to handlers.
 //
 // Non-indication lines are passed upstream. Indication trailing lines are
 // assumed to arrive in a contiguous block immediately after the indication.
@@ -298,9 +318,9 @@ func (a *AT) processReq(ctx context.Context, cmd string, sms *string) (info []st
 // adds to the response for the current command.
 //
 // The return values are:
-// - a line of info to be added to the response (optional)
-// - a flag indicating if the command is complete.
-// - an error detected while processing the command.
+//  - a line of info to be added to the response (optional)
+//  - a flag indicating if the command is complete.
+//  - an error detected while processing the command.
 func (a *AT) processRxLine(line, cmdID string, sms *string) (*string, bool, error) {
 	switch parseRxLine(line, cmdID) {
 	case rxlStatusOK:
@@ -332,8 +352,8 @@ func (a *AT) processRxLine(line, cmdID string, sms *string) (*string, bool, erro
 	return nil, false, nil
 }
 
-// startWriteGuard starts a write guard that prevents a subsequent write
-// within a short period of time (20ms).
+// startWriteGuard starts a write guard that prevents a subsequent write within
+// a short period of time (20ms).
 func (a *AT) startWriteGuard() {
 	a.wgmu.Lock()
 	a.guarded = true
@@ -382,16 +402,19 @@ func (a *AT) writeSMS(sms string) error {
 }
 
 // CMEError indicates a CME Error was returned by the modem.
-// The value is the error value, in string form, which may be the numeric or textual, depending
-// on the modem configuration.
+//
+// The value is the error value, in string form, which may be the numeric or
+// textual, depending on the modem configuration.
 type CMEError string
 
 // CMSError indicates a CMS Error was returned by the modem.
-// The value is the error value, in string form, which may be the numeric or textual, depending
-// on the modem configuration.
+//
+// The value is the error value, in string form, which may be the numeric or
+// textual, depending on the modem configuration.
 type CMSError string
 
 // ConnectError indicates an attempt to dial failed.
+//
 // The value of the error is the failure indication returned by the modem.
 type ConnectError string
 
@@ -408,12 +431,16 @@ func (e ConnectError) Error() string {
 }
 
 var (
-	// ErrClosed indicates an operation cannot be performed as the modem has been closed.
+	// ErrClosed indicates an operation cannot be performed as the modem has
+	// been closed.
 	ErrClosed = errors.New("closed")
-	// ErrError indicates the modem returned a generic AT ERROR in response to an operation.
+
+	// ErrError indicates the modem returned a generic AT ERROR in response to
+	// an operation.
 	ErrError = errors.New("ERROR")
-	// ErrIndicationExists indicates there is already a indication registered for
-	// a prefix.
+
+	// ErrIndicationExists indicates there is already a indication registered
+	// for a prefix.
 	ErrIndicationExists = errors.New("indication exists")
 )
 
@@ -431,9 +458,12 @@ func newError(line string) error {
 	return err
 }
 
-// response represents the result of a request operation performed on the modem.
-// info is the collection of lines returned between the command and the status line.
-// err corresponds to any error returned by the modem or while interacting with the modem.
+// response represents the result of a request operation performed on the
+// modem.
+//
+// info is the collection of lines returned between the command and the status
+// line. err corresponds to any error returned by the modem or while
+// interacting with the modem.
 type response struct {
 	info []string
 	err  error
@@ -454,11 +484,12 @@ const (
 	rxlConnectError
 )
 
-// indication represents an unsolicited result code (URC) from the modem, such as a
-// received SMS message.
-// Indications are lines prefixed with a particular pattern,
-// and may include a number of trailing lines.
-// The matching lines are bundled into a slice and sent to the channel.
+// indication represents an unsolicited result code (URC) from the modem, such
+// as a received SMS message.
+//
+// Indications are lines prefixed with a particular pattern, and may include a
+// number of trailing lines. The matching lines are bundled into a slice and
+// sent to the channel.
 type indication struct {
 	prefix     string
 	totalLines int
@@ -466,6 +497,7 @@ type indication struct {
 }
 
 // parseCmdID returns the identifier component of the command.
+//
 // This is the section prior to any '=' or '?' and is generally, but not
 // always, used to prefix info lines corresponding to the command.
 func parseCmdID(cmdLine string) string {
@@ -511,8 +543,8 @@ func parseRxLine(line string, cmdID string) rxl {
 	}
 }
 
-// scanLines is a custom line scanner for lineReader that recognises
-// the prompt returned by the modem in response to SMS commands such as +CMGS.
+// scanLines is a custom line scanner for lineReader that recognises the prompt
+// returned by the modem in response to SMS commands such as +CMGS.
 func scanLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	// handle SMS prompt special case - no CR at prompt
 	if len(data) >= 1 && data[0] == '>' {
