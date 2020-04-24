@@ -53,6 +53,9 @@ type AT struct {
 	// indications mapped by prefix
 	inds map[string]indication // only modified in nLoop
 
+	// commands issued by Init.
+	initCmds []string
+
 	// covers escGuard
 	escGuardMu sync.Mutex
 
@@ -78,6 +81,12 @@ func New(modem io.ReadWriter, options ...Option) *AT {
 	for _, option := range options {
 		option(a)
 	}
+	if a.initCmds == nil {
+		a.initCmds = []string{
+			"Z",       // reset to factory defaults (also clears the escape from the rx buffer)
+			"^CURC=0", // disable general indications ^XXXX
+		}
+	}
 	go lineReader(a.modem, a.iLines)
 	go a.indLoop(a.indCh, a.iLines, a.cLines)
 	go cmdLoop(a.cmdCh, a.cLines, a.closed)
@@ -98,6 +107,15 @@ const (
 func WithEscTime(d time.Duration) Option {
 	return func(a *AT) {
 		a.escTime = d
+	}
+}
+
+// WithInitCmds specifies the commands issued by Init.
+//
+// The default commands are ATZ and AT^CURC=0.
+func WithInitCmds(cmds ...string) Option {
+	return func(a *AT) {
+		a.initCmds = cmds
 	}
 }
 
@@ -185,15 +203,14 @@ func (a *AT) CancelIndication(prefix string) {
 // The Init is intended to be called after creation and before any other commands
 // are issued in order to get the modem into a known state.
 //
-// This is a bare minimum init.
-func (a *AT) Init(ctx context.Context) error {
+// The default init commands can be overridden by the cmds parameter.
+func (a *AT) Init(ctx context.Context, cmds ...string) error {
 	// escape any outstanding SMS operations then CR to flush the command
 	// buffer
 	a.escape([]byte("\r\n")...)
 
-	cmds := []string{
-		"Z",       // reset to factory defaults (also clears the escape from the rx buffer)
-		"^CURC=0", // disable general indications ^XXXX
+	if cmds == nil {
+		cmds = a.initCmds
 	}
 	for _, cmd := range cmds {
 		_, err := a.Command(ctx, cmd)

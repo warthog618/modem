@@ -98,6 +98,45 @@ func TestWithEscTime(t *testing.T) {
 	}
 }
 
+func TestWithInitCmds(t *testing.T) {
+	cmdSet := map[string][]string{
+		// for init
+		string(27) + "\r\n\r\n": {"\r\n"},
+		"ATZ\r\n":               {"OK\r\n"},
+		"AT^CURC=0\r\n":         {"OK\r\n"},
+	}
+	patterns := []struct {
+		name    string
+		options []at.Option
+	}{
+		{
+			"default",
+			nil,
+		},
+		{
+			"cmd",
+			[]at.Option{at.WithInitCmds("Z")},
+		},
+		{
+			"cmds",
+			[]at.Option{at.WithInitCmds("Z", "Z", "^CURC=0")},
+		},
+	}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
+			defer teardownModem(&mm)
+			a := at.New(&mm, p.options...)
+			require.NotNil(t, a)
+
+			ctx := context.Background()
+			err := a.Init(ctx)
+			assert.Nil(t, err)
+		}
+		t.Run(p.name, f)
+	}
+}
+
 func TestInit(t *testing.T) {
 	// mocked
 	cmdSet := map[string][]string{
@@ -127,6 +166,10 @@ func TestInit(t *testing.T) {
 	// residual ERRORs
 	mm.r <- []byte("\r\nERROR\r\nERROR\r\n")
 	err = a.Init(ctx)
+	assert.Nil(t, err)
+
+	// customised commands
+	err = a.Init(ctx, "Z", "Z", "^CURC=0")
 	assert.Nil(t, err)
 }
 
