@@ -148,7 +148,7 @@ func TestInit(t *testing.T) {
 			"ATZ\r\n",
 			[]string{"ERROR\r\n"},
 			false,
-			errors.WithMessage(at.ErrError, "ATZ returned error"),
+			fmt.Errorf("ATZ returned error: %w", at.ErrError),
 		},
 		{
 			"cancelled",
