@@ -42,12 +42,13 @@ func main() {
 	} else if *verbose {
 		mio = trace.New(m)
 	}
-	g := gsm.New(mio)
+	gopts := []gsm.Option{gsm.FromReadWriter(mio)}
+	if *pdumode {
+		gopts = append(gopts, gsm.WithPDUMode)
+	}
+	g := gsm.New(gopts...)
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	if *pdumode {
-		g.SetPDUMode()
-	}
 	if err = g.Init(ctx); err != nil {
 		log.Fatal(err)
 	}

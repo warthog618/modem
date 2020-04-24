@@ -50,8 +50,7 @@ func main() {
 	} else if *verbose {
 		mio = trace.New(m)
 	}
-	g := gsm.New(mio)
-	g.SetPDUMode()
+	g := gsm.New(gsm.FromReadWriter(mio), gsm.WithPDUMode)
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	err = g.Init(ctx)
 	cancel()

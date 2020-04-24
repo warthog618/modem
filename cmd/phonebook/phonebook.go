@@ -38,7 +38,7 @@ func main() {
 	if *verbose {
 		mio = trace.New(m)
 	}
-	g := gsm.New(mio)
+	g := gsm.New(gsm.FromReadWriter(mio))
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	err = g.Init(ctx)
 	cancel()

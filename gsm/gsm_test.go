@@ -17,8 +17,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
-	"os"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -32,16 +30,42 @@ import (
 	"github.com/warthog618/sms/encoding/tpdu"
 )
 
+var debug = false // set to true to enable tracing of the flow to the mockModem.
+
 func TestNew(t *testing.T) {
-	// mocked
 	mm := mockModem{cmdSet: nil, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
-	g := gsm.New(&mm)
-	require.NotNil(t, g)
-	select {
-	case <-g.Closed():
-		t.Error("modem closed")
-	default:
+	patterns := []struct {
+		name    string
+		options []gsm.Option
+		success bool
+	}{
+		{
+			"default",
+			nil,
+			false,
+		},
+		{
+			"FromReaderWriter",
+			[]gsm.Option{gsm.FromReadWriter(&mm)},
+			true,
+		},
+		{
+			"FromAT",
+			[]gsm.Option{gsm.FromAT(at.New(&mm))},
+			true,
+		},
+	}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			g := gsm.New(p.options...)
+			if p.success {
+				assert.NotNil(t, g)
+			} else {
+				assert.Nil(t, g)
+			}
+		}
+		t.Run(p.name, f)
 	}
 }
 
@@ -56,15 +80,6 @@ func TestInit(t *testing.T) {
 		"AT+CMEE=2\r\n": {"OK\r\n"},
 		"AT+CMGF=1\r\n": {"OK\r\n"},
 		"AT+GCAP\r\n":   {"+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"},
-	}
-	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
-	defer teardownModem(&mm)
-	g := gsm.New(&mm)
-	require.NotNil(t, g)
-	select {
-	case <-g.Closed():
-		t.Error("modem closed")
-	default:
 	}
 	background := context.Background()
 	cancelled, cancel := context.WithCancel(background)
@@ -189,12 +204,17 @@ func TestInit(t *testing.T) {
 	}
 	for _, p := range patterns {
 		f := func(t *testing.T) {
+			mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
+			defer teardownModem(&mm)
+			gopts := []gsm.Option{gsm.FromReadWriter(&mm)}
+			if p.pduMode {
+				gopts = append(gopts, gsm.WithPDUMode)
+			}
+			g := gsm.New(gopts...)
+			require.NotNil(t, g)
 			var oldvalue []string
 			if p.residual != nil {
 				mm.r <- p.residual
-			}
-			if p.pduMode {
-				g.SetPDUMode()
 			}
 			if p.key != "" {
 				oldvalue = cmdSet[p.key]
@@ -281,6 +301,8 @@ func TestSendSMS(t *testing.T) {
 		},
 	}
 	g, mm := setupModem(t, cmdSet)
+	require.NotNil(t, g)
+	require.NotNil(t, mm)
 	defer teardownModem(mm)
 
 	for _, p := range patterns {
@@ -293,7 +315,11 @@ func TestSendSMS(t *testing.T) {
 	}
 	cancel()
 
-	g.SetPDUMode()
+	// wrong mode
+	g, mm = setupModem(t, cmdSet, gsm.WithPDUMode)
+	require.NotNil(t, g)
+	require.NotNil(t, mm)
+	defer teardownModem(mm)
 	p := patterns[0]
 	mr, err := g.SendSMS(p.ctx, p.number, p.message)
 	assert.Equal(t, gsm.ErrWrongMode, err)
@@ -362,15 +388,10 @@ func TestSendSMSPDU(t *testing.T) {
 			"",
 		},
 	}
-	g, mm := setupModem(t, cmdSet)
+	g, mm := setupModem(t, cmdSet, gsm.WithPDUMode)
+	require.NotNil(t, g)
+	require.NotNil(t, mm)
 	defer teardownModem(mm)
-
-	p := patterns[0]
-	omr, oerr := g.SendSMSPDU(p.ctx, p.tpdu)
-	assert.Equal(t, gsm.ErrWrongMode, oerr)
-	assert.Equal(t, "", omr)
-
-	g.SetPDUMode()
 
 	for _, p := range patterns {
 		f := func(t *testing.T) {
@@ -382,9 +403,27 @@ func TestSendSMSPDU(t *testing.T) {
 	}
 	cancel()
 
-	g.SetSCA(pdumode.SMSCAddress{tpdu.Address{Addr: "text"}})
-	p = patterns[0]
-	omr, oerr = g.SendSMSPDU(p.ctx, p.tpdu)
+	// wrong mode
+	g, mm = setupModem(t, cmdSet)
+	require.NotNil(t, g)
+	require.NotNil(t, mm)
+	defer teardownModem(mm)
+	p := patterns[0]
+	omr, oerr := g.SendSMSPDU(p.ctx, p.tpdu)
+	assert.Equal(t, gsm.ErrWrongMode, oerr)
+	assert.Equal(t, "", omr)
+}
+
+func TestWithSCA(t *testing.T) {
+	var sca pdumode.SMSCAddress
+	sca.Addr = "text"
+	gopts := []gsm.Option{gsm.WithSCA(sca)}
+	g, mm := setupModem(t, nil, gopts...)
+	defer teardownModem(mm)
+
+	tp := []byte{1, 2, 3, 4, 5, 6}
+	ctx := context.Background()
+	omr, oerr := g.SendSMSPDU(ctx, tp)
 	assert.Equal(t, tpdu.EncodeError("addr", semioctet.ErrInvalidDigit(0x74)), oerr)
 	assert.Equal(t, "", omr)
 }
@@ -438,17 +477,14 @@ func (m *mockModem) Close() error {
 	return nil
 }
 
-func setupModem(t *testing.T, cmdSet map[string][]string) (*gsm.GSM, *mockModem) {
+func setupModem(t *testing.T, cmdSet map[string][]string, gopts ...gsm.Option) (*gsm.GSM, *mockModem) {
 	mm := &mockModem{cmdSet: cmdSet, echo: true, r: make(chan []byte, 10)}
 	var modem io.ReadWriter = mm
-	debug := false // set to true to enable tracing of the flow to the mockModem.
 	if debug {
-		l := log.New(os.Stdout, "", log.LstdFlags)
-		tr := trace.New(modem, trace.WithLogger(l))
-		//tr := trace.New(modem, l, trace.ReadFormat("r: %v"))
-		modem = tr
+		modem = trace.New(modem)
 	}
-	g := gsm.New(modem)
+	gopts = append(gopts, gsm.FromReadWriter(modem))
+	g := gsm.New(gopts...)
 	require.NotNil(t, g)
 	return g, mm
 }
