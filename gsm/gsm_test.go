@@ -444,7 +444,7 @@ func setupModem(t *testing.T, cmdSet map[string][]string) (*gsm.GSM, *mockModem)
 	debug := false // set to true to enable tracing of the flow to the mockModem.
 	if debug {
 		l := log.New(os.Stdout, "", log.LstdFlags)
-		tr := trace.New(modem, l)
+		tr := trace.New(modem, trace.WithLogger(l))
 		//tr := trace.New(modem, l, trace.ReadFormat("r: %v"))
 		modem = tr
 	}

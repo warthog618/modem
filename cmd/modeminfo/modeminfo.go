@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"time"
 
 	"github.com/warthog618/modem/at"
@@ -37,7 +36,7 @@ func main() {
 	defer m.Close()
 	var mio io.ReadWriter = m
 	if *verbose {
-		mio = trace.New(m, log.New(os.Stdout, "", log.LstdFlags))
+		mio = trace.New(m)
 	}
 	a := at.New(mio)
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)

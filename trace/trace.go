@@ -9,6 +9,7 @@ package trace
 import (
 	"io"
 	"log"
+	"os"
 )
 
 // Trace is a trace log on an io.ReadWriter.
@@ -16,34 +17,55 @@ import (
 // All reads and writes are written to the logger.
 type Trace struct {
 	rw   io.ReadWriter
-	l    *log.Logger
+	l    Logger
 	wfmt string
 	rfmt string
+}
+
+// Logger defines the interface used to log trace messages.
+type Logger interface {
+	Printf(format string, v ...interface{})
 }
 
 // Option modifies a Trace object created by New.
 type Option func(*Trace)
 
 // New creates a new trace on the io.ReadWriter.
-func New(rw io.ReadWriter, l *log.Logger, opts ...Option) *Trace {
-	t := &Trace{rw: rw, l: l, wfmt: "w: %s", rfmt: "r: %s"}
-	for _, opt := range opts {
-		opt(t)
+func New(rw io.ReadWriter, options ...Option) *Trace {
+	t := &Trace{
+		rw:   rw,
+		wfmt: "w: %s",
+		rfmt: "r: %s",
+	}
+	for _, option := range options {
+		option(t)
+	}
+	if t.l == nil {
+		t.l = log.New(os.Stdout, "", log.LstdFlags)
 	}
 	return t
 }
 
-// ReadFormat sets the format used for read logs.
-func ReadFormat(format string) Option {
+// WithReadFormat sets the format used for read logs.
+func WithReadFormat(format string) Option {
 	return func(t *Trace) {
 		t.rfmt = format
 	}
 }
 
-// WriteFormat sets the format used for write logs.
-func WriteFormat(format string) Option {
+// WithWriteFormat sets the format used for write logs.
+func WithWriteFormat(format string) Option {
 	return func(t *Trace) {
 		t.wfmt = format
+	}
+}
+
+// WithLogger specifies the logger to be used to log trace messages.
+//
+// By default traces are logged to Stdout.
+func WithLogger(l Logger) Option {
+	return func(t *Trace) {
+		t.l = l
 	}
 }
 

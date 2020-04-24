@@ -17,8 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
-	"os"
 	"testing"
 	"time"
 
@@ -768,10 +766,7 @@ func setupModem(t *testing.T, cmdSet map[string][]string) (*at.AT, *mockModem) {
 	var modem io.ReadWriter = mm
 	debug := false // set to true to enable tracing of the flow to the mockModem.
 	if debug {
-		l := log.New(os.Stdout, "", log.LstdFlags)
-		tr := trace.New(modem, l)
-		//tr := trace.New(modem, l, trace.ReadFormat("r: %v"))
-		modem = tr
+		modem = trace.New(modem)
 	}
 	a := at.New(modem)
 	require.NotNil(t, a)

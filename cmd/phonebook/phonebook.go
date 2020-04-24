@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -37,7 +36,7 @@ func main() {
 	}
 	var mio io.ReadWriter = m
 	if *verbose {
-		mio = trace.New(m, log.New(os.Stdout, "", log.LstdFlags))
+		mio = trace.New(m)
 	}
 	g := gsm.New(mio)
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)

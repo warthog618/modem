@@ -19,11 +19,11 @@ func TestNew(t *testing.T) {
 	b := bytes.Buffer{}
 	l := log.New(&b, "", log.LstdFlags)
 	// vanilla
-	tr := trace.New(mrw, l)
+	tr := trace.New(mrw)
 	assert.NotNil(t, tr)
 
-	// with opts
-	tr = trace.New(mrw, l, trace.ReadFormat("r: %v"))
+	// with options
+	tr = trace.New(mrw, trace.WithLogger(l), trace.WithReadFormat("r: %v"))
 	assert.NotNil(t, tr)
 }
 
@@ -31,7 +31,7 @@ func TestRead(t *testing.T) {
 	mrw := bytes.NewBufferString("one")
 	b := bytes.Buffer{}
 	l := log.New(&b, "", 0)
-	tr := trace.New(mrw, l)
+	tr := trace.New(mrw, trace.WithLogger(l))
 	require.NotNil(t, tr)
 	i := make([]byte, 10)
 	n, err := tr.Read(i)
@@ -44,7 +44,7 @@ func TestWrite(t *testing.T) {
 	mrw := bytes.NewBufferString("one")
 	b := bytes.Buffer{}
 	l := log.New(&b, "", 0)
-	tr := trace.New(mrw, l)
+	tr := trace.New(mrw, trace.WithLogger(l))
 	require.NotNil(t, tr)
 	n, err := tr.Write([]byte("two"))
 	assert.Nil(t, err)
@@ -56,7 +56,7 @@ func TestReadFormat(t *testing.T) {
 	mrw := bytes.NewBufferString("one")
 	b := bytes.Buffer{}
 	l := log.New(&b, "", 0)
-	tr := trace.New(mrw, l, trace.ReadFormat("R: %v"))
+	tr := trace.New(mrw, trace.WithLogger(l), trace.WithReadFormat("R: %v"))
 	require.NotNil(t, tr)
 	i := make([]byte, 10)
 	n, err := tr.Read(i)
@@ -69,7 +69,7 @@ func TestWriteFormat(t *testing.T) {
 	mrw := bytes.NewBufferString("one")
 	b := bytes.Buffer{}
 	l := log.New(&b, "", 0)
-	tr := trace.New(mrw, l, trace.WriteFormat("W: %v"))
+	tr := trace.New(mrw, trace.WithLogger(l), trace.WithWriteFormat("W: %v"))
 	require.NotNil(t, tr)
 	n, err := tr.Write([]byte("two"))
 	assert.Nil(t, err)

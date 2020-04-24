@@ -13,7 +13,6 @@ import (
 	"flag"
 	"io"
 	"log"
-	"os"
 	"time"
 
 	"github.com/warthog618/modem/gsm"
@@ -39,9 +38,9 @@ func main() {
 	}
 	var mio io.ReadWriter = m
 	if *hex {
-		mio = trace.New(m, log.New(os.Stdout, "", log.LstdFlags), trace.ReadFormat("r: %v"))
+		mio = trace.New(m, trace.WithReadFormat("r: %v"))
 	} else if *verbose {
-		mio = trace.New(m, log.New(os.Stdout, "", log.LstdFlags))
+		mio = trace.New(m)
 	}
 	g := gsm.New(mio)
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
