@@ -60,7 +60,7 @@ func TestNew(t *testing.T) {
 		},
 		{
 			"bad baud",
-			nil,
+			modemExists("/dev/ttyUSB0"),
 			[]serial.Option{serial.WithBaud(1234)},
 			errors.New("Unrecognized baud rate"),
 		},
