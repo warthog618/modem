@@ -29,15 +29,74 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	// mocked
-	mm := mockModem{cmdSet: nil, echo: false, r: make(chan []byte, 10)}
-	defer teardownModem(&mm)
-	a := at.New(&mm)
-	require.NotNil(t, a)
-	select {
-	case <-a.Closed():
-		t.Error("modem closed")
-	default:
+	patterns := []struct {
+		name    string
+		options []at.Option
+	}{
+		{
+			"default",
+			nil,
+		},
+		{
+			"escTime",
+			[]at.Option{at.WithEscTime(100 * time.Millisecond)},
+		},
+	}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			// mocked
+			mm := mockModem{cmdSet: nil, echo: false, r: make(chan []byte, 10)}
+			defer teardownModem(&mm)
+			a := at.New(&mm, p.options...)
+			require.NotNil(t, a)
+			select {
+			case <-a.Closed():
+				t.Error("modem closed")
+			default:
+			}
+		}
+		t.Run(p.name, f)
+	}
+}
+
+func TestWithEscTime(t *testing.T) {
+	cmdSet := map[string][]string{
+		// for init
+		string(27) + "\r\n\r\n": {"\r\n"},
+		"ATZ\r\n":               {"OK\r\n"},
+		"AT^CURC=0\r\n":         {"OK\r\n"},
+	}
+	patterns := []struct {
+		name    string
+		options []at.Option
+		d       time.Duration
+	}{
+		{
+			"default",
+			nil,
+			20 * time.Millisecond,
+		},
+		{
+			"100ms",
+			[]at.Option{at.WithEscTime(100 * time.Millisecond)},
+			100 * time.Millisecond,
+		},
+	}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
+			defer teardownModem(&mm)
+			a := at.New(&mm, p.options...)
+			require.NotNil(t, a)
+
+			ctx := context.Background()
+			start := time.Now()
+			err := a.Init(ctx)
+			assert.Nil(t, err)
+			end := time.Now()
+			assert.GreaterOrEqual(t, int64(end.Sub(start)), int64(p.d))
+		}
+		t.Run(p.name, f)
 	}
 }
 

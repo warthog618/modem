@@ -29,33 +29,76 @@ import (
 //
 // Once closed the AT cannot be re-opened - it must be recreated.
 type AT struct {
-	cmdCh   chan func()
-	indCh   chan func()
-	closed  chan struct{}
-	iLines  chan string
-	cLines  chan string
-	modem   io.ReadWriter
-	inds    map[string]indication // only modified in nLoop
-	wgmu    sync.Mutex            // covers guarded and wGuard
-	guarded bool
-	wGuard  <-chan time.Time
+	// channel for commands issued to the modem
+	cmdCh chan func()
+
+	// channel for changes to inds
+	indCh chan func()
+
+	// closed when modem is closed
+	closed chan struct{}
+
+	// channel for all lines read from the modem
+	iLines chan string
+
+	// channel for lines read from the modem after indications removed
+	cLines chan string
+
+	// the underlying modem
+	modem io.ReadWriter
+
+	// the minimum time between an escape command and the subsequent command
+	escTime time.Duration
+
+	// indications mapped by prefix
+	inds map[string]indication // only modified in nLoop
+
+	// covers escGuard
+	escGuardMu sync.Mutex
+
+	// if not-nil, the time the subsequent command must wait
+	escGuard <-chan time.Time
 }
 
+// Option is a construction option for an AT.
+type Option func(*AT)
+
 // New creates a new AT modem.
-func New(modem io.ReadWriter) *AT {
+func New(modem io.ReadWriter, options ...Option) *AT {
 	a := &AT{
-		modem:  modem,
-		cmdCh:  make(chan func()),
-		indCh:  make(chan func()),
-		iLines: make(chan string),
-		cLines: make(chan string),
-		closed: make(chan struct{}),
-		inds:   make(map[string]indication),
+		modem:   modem,
+		cmdCh:   make(chan func()),
+		indCh:   make(chan func()),
+		iLines:  make(chan string),
+		cLines:  make(chan string),
+		closed:  make(chan struct{}),
+		escTime: 20 * time.Millisecond,
+		inds:    make(map[string]indication),
+	}
+	for _, option := range options {
+		option(a)
 	}
 	go lineReader(a.modem, a.iLines)
-	go a.nLoop(a.indCh, a.iLines, a.cLines)
+	go a.indLoop(a.indCh, a.iLines, a.cLines)
 	go cmdLoop(a.cmdCh, a.cLines, a.closed)
 	return a
+}
+
+const (
+	sub = 0x1a
+	esc = 0x1b
+)
+
+// WithEscTime sets the guard time for the modem.
+//
+// The escape time is the minimum time between an escape command being sent to
+// the modem and any subsequent commands.
+//
+// The default guard time is 20msec.
+func WithEscTime(d time.Duration) Option {
+	return func(a *AT) {
+		a.escTime = d
+	}
 }
 
 // Closed returns a channel which will block while the modem is not closed.
@@ -73,13 +116,14 @@ func (a *AT) Closed() <-chan struct{} {
 // command did not complete successfully.
 func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
 	done := make(chan response)
+	cmdf := func() {
+		info, err := a.processReq(ctx, cmd)
+		done <- response{info: info, err: err}
+	}
 	select {
 	case <-a.closed:
 		return nil, ErrClosed
-	case a.cmdCh <- func() {
-		info, err := a.processReq(ctx, cmd, nil)
-		done <- response{info: info, err: err}
-	}:
+	case a.cmdCh <- cmdf:
 		rsp := <-done
 		return rsp.info, rsp.err
 	}
@@ -90,13 +134,10 @@ func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
 //
 // Each set of lines is returned via the returned channel.
 // The return channel is closed when the AT closes.
-func (a *AT) AddIndication(prefix string, trailingLines int) (<-chan []string, error) {
+func (a *AT) AddIndication(prefix string, trailingLines int) (evtCh <-chan []string, err error) {
 	done := make(chan chan []string)
 	errs := make(chan error)
-	select {
-	case <-a.closed:
-		return nil, ErrClosed
-	case a.indCh <- func() {
+	indf := func() {
 		if _, ok := a.inds[prefix]; ok {
 			errs <- ErrIndicationExists
 			return
@@ -104,14 +145,17 @@ func (a *AT) AddIndication(prefix string, trailingLines int) (<-chan []string, e
 		i := indication{prefix, trailingLines + 1, make(chan []string)}
 		a.inds[prefix] = i
 		done <- i.c
-	}:
+	}
+	select {
+	case <-a.closed:
+		err = ErrClosed
+	case a.indCh <- indf:
 		select {
-		case evtCh := <-done:
-			return evtCh, nil
-		case err := <-errs:
-			return nil, err
+		case evtCh = <-done:
+		case err = <-errs:
 		}
 	}
+	return
 }
 
 // CancelIndication removes any indication corresponding to the prefix.
@@ -120,17 +164,17 @@ func (a *AT) AddIndication(prefix string, trailingLines int) (<-chan []string, e
 // indications will be sent to it.
 func (a *AT) CancelIndication(prefix string) {
 	done := make(chan struct{})
-	select {
-	case <-a.closed:
-		return
-	case a.indCh <- func() {
+	indf := func() {
 		i, ok := a.inds[prefix]
 		if ok {
 			close(i.c)
 			delete(a.inds, prefix)
 		}
 		close(done)
-	}:
+	}
+	select {
+	case <-a.closed:
+	case a.indCh <- indf:
 		<-done
 	}
 }
@@ -145,10 +189,7 @@ func (a *AT) CancelIndication(prefix string) {
 func (a *AT) Init(ctx context.Context) error {
 	// escape any outstanding SMS operations then CR to flush the command
 	// buffer
-	a.modem.Write([]byte(string(27) + "\r\n\r\n"))
-	// allow time for response, or at least any residual OK, to propagate and
-	// be discarded.
-	a.startWriteGuard()
+	a.escape([]byte("\r\n")...)
 
 	cmds := []string{
 		"Z",       // reset to factory defaults (also clears the escape from the rx buffer)
@@ -161,7 +202,7 @@ func (a *AT) Init(ctx context.Context) error {
 		case context.DeadlineExceeded, context.Canceled:
 			return err
 		default:
-			return errors.WithMessage(err, fmt.Sprintf("AT%s returned error", cmd))
+			return fmt.Errorf("AT%s returned error: %w", cmd, err)
 		}
 	}
 	return nil
@@ -185,13 +226,14 @@ func (a *AT) Init(ctx context.Context) error {
 // depending on the configuration of the modem (text or PDU mode).
 func (a *AT) SMSCommand(ctx context.Context, cmd string, sms string) (info []string, err error) {
 	done := make(chan response)
+	cmdf := func() {
+		info, err := a.processSmsReq(ctx, cmd, sms)
+		done <- response{info: info, err: err}
+	}
 	select {
 	case <-a.closed:
 		return nil, ErrClosed
-	case a.cmdCh <- func() {
-		info, err := a.processReq(ctx, cmd, &sms)
-		done <- response{info: info, err: err}
-	}:
+	case a.cmdCh <- cmdf:
 		rsp := <-done
 		return rsp.info, rsp.err
 	}
@@ -200,7 +242,8 @@ func (a *AT) SMSCommand(ctx context.Context, cmd string, sms string) (info []str
 // cmdLoop is responsible for the interface to the modem.
 //
 // It serialises the issuing of commands and awaits the responses.
-// If no command is pending then any lines received are ignored.
+// If no command is pending then any lines received are discarded.
+//
 // The cmdLoop terminates when the downstream closes.
 func cmdLoop(cmds chan func(), in <-chan string, out chan struct{}) {
 	for {
@@ -228,13 +271,14 @@ func lineReader(m io.Reader, out chan string) {
 	close(out) // tell pipeline we're done - end of pipeline will close the AT.
 }
 
-// nLoop is responsible for pulling indications from the stream of lines read
+// indLoop is responsible for pulling indications from the stream of lines read
 // from the modem, and forwarding them to handlers.
 //
 // Non-indication lines are passed upstream. Indication trailing lines are
 // assumed to arrive in a contiguous block immediately after the indication.
-// nLoop exits when in closes.
-func (a *AT) nLoop(cmds chan func(), in <-chan string, out chan string) {
+//
+// indLoop exits when the in channel closes.
+func (a *AT) indLoop(cmds chan func(), in <-chan string, out chan string) {
 	defer func() {
 		for k, v := range a.inds {
 			close(v.c)
@@ -270,14 +314,9 @@ func (a *AT) nLoop(cmds chan func(), in <-chan string, out chan string) {
 	}
 }
 
-func (a *AT) processReq(ctx context.Context, cmd string, sms *string) (info []string, err error) {
-	a.waitWriteGuard()
-	switch sms {
-	case nil:
-		err = a.writeCommand(cmd)
-	default:
-		err = a.writeSMSCommand(cmd)
-	}
+func (a *AT) processReq(ctx context.Context, cmd string) (info []string, err error) {
+	a.waitEscGuard()
+	err = a.writeCommand(cmd)
 	if err != nil {
 		return
 	}
@@ -285,11 +324,6 @@ func (a *AT) processReq(ctx context.Context, cmd string, sms *string) (info []st
 	for {
 		select {
 		case <-ctx.Done():
-			if sms != nil {
-				// cancel outstanding SMS request
-				a.modem.Write([]byte(string(27) + "\r\n"))
-				a.startWriteGuard()
-			}
 			err = ctx.Err()
 			return
 		case line, ok := <-a.cLines:
@@ -299,7 +333,46 @@ func (a *AT) processReq(ctx context.Context, cmd string, sms *string) (info []st
 			if line == "" {
 				continue
 			}
-			i, done, perr := a.processRxLine(line, cmdID, sms)
+			lt := parseRxLine(line, cmdID)
+			i, done, perr := a.processRxLine(lt, line)
+			if i != nil {
+				info = append(info, *i)
+			}
+			if perr != nil {
+				err = perr
+				return
+			}
+			if done {
+				return
+			}
+		}
+	}
+}
+
+func (a *AT) processSmsReq(ctx context.Context, cmd string, sms string) (info []string, err error) {
+	a.waitEscGuard()
+	err = a.writeSMSCommand(cmd)
+	if err != nil {
+		return
+	}
+	cmdID := parseCmdID(cmd)
+	for {
+		select {
+		case <-ctx.Done():
+			// cancel outstanding SMS request
+			a.escape()
+			err = ctx.Err()
+			return
+		case line, ok := <-a.cLines:
+			if !ok {
+				err = ErrClosed
+				return
+			}
+			if line == "" {
+				continue
+			}
+			lt := parseRxLine(line, cmdID)
+			i, done, perr := a.processSmsRxLine(lt, line, sms)
 			if i != nil {
 				info = append(info, *i)
 			}
@@ -321,62 +394,80 @@ func (a *AT) processReq(ctx context.Context, cmd string, sms *string) (info []st
 //  - a line of info to be added to the response (optional)
 //  - a flag indicating if the command is complete.
 //  - an error detected while processing the command.
-func (a *AT) processRxLine(line, cmdID string, sms *string) (*string, bool, error) {
-	switch parseRxLine(line, cmdID) {
+func (a *AT) processRxLine(lt rxl, line string) (info *string, done bool, err error) {
+	switch lt {
 	case rxlStatusOK:
-		return nil, true, nil
+		done = true
 	case rxlStatusError:
-		return nil, false, newError(line)
-	case rxlUnknown:
-		if sms != nil && line[len(line)-1] == 26 && strings.HasPrefix(line, *sms) {
-			// swallow echoed SMS PDU
-			return nil, false, nil
-		}
-		fallthrough
-	case rxlInfo:
-		return &line, false, nil
-	case rxlSMSPrompt:
-		if sms != nil {
-			if err := a.writeSMS(*sms); err != nil {
-				// escape SMS
-				a.modem.Write([]byte(string(27) + "\r\n"))
-				a.startWriteGuard()
-				return nil, false, err
-			}
-		}
+		err = newError(line)
+	case rxlUnknown, rxlInfo:
+		info = &line
 	case rxlConnect:
-		return &line, true, nil
+		info = &line
+		done = true
 	case rxlConnectError:
-		return nil, false, ConnectError(line)
+		err = ConnectError(line)
 	}
-	return nil, false, nil
+	return
 }
 
-// startWriteGuard starts a write guard that prevents a subsequent write within
-// a short period of time (20ms).
-func (a *AT) startWriteGuard() {
-	a.wgmu.Lock()
-	a.guarded = true
-	a.wGuard = time.After(20 * time.Millisecond)
-	a.wgmu.Unlock()
+// processSmsRxLine parses a line received from the modem and determines how it
+// adds to the response for the current command.
+//
+// The return values are:
+//  - a line of info to be added to the response (optional)
+//  - a flag indicating if the command is complete.
+//  - an error detected while processing the command.
+func (a *AT) processSmsRxLine(lt rxl, line string, sms string) (info *string, done bool, err error) {
+	switch lt {
+	case rxlUnknown:
+		if line[len(line)-1] == sub && strings.HasPrefix(line, sms) {
+			// swallow echoed SMS PDU
+			return
+		}
+		info = &line
+	case rxlSMSPrompt:
+		if err = a.writeSMS(sms); err != nil {
+			// escape SMS
+			a.escape()
+		}
+	default:
+		return a.processRxLine(lt, line)
+	}
+	return
 }
 
-// waitWriteGuard waits for a write guard to allow a write to the modem.
-func (a *AT) waitWriteGuard() {
-	a.wgmu.Lock()
-	defer a.wgmu.Unlock()
-	if a.guarded {
-		for {
-			select {
-			case _, ok := <-a.cLines:
-				if !ok {
-					return
-				}
-			case <-a.wGuard:
-				a.guarded = false
-				a.wGuard = nil
+// issue an escape command
+func (a *AT) escape(b ...byte) {
+	cmd := append([]byte(string(esc)+"\r\n"), b...)
+	a.modem.Write(cmd)
+	a.startEscGuard()
+}
+
+// startEscGuard starts a write guard that prevents a subsequent write within
+// a short period of time (default 20ms).
+func (a *AT) startEscGuard() {
+	a.escGuardMu.Lock()
+	a.escGuard = time.After(a.escTime)
+	a.escGuardMu.Unlock()
+}
+
+// waitEscGuard waits for a write guard to allow a write to the modem.
+func (a *AT) waitEscGuard() {
+	a.escGuardMu.Lock()
+	defer a.escGuardMu.Unlock()
+	if a.escGuard == nil {
+		return
+	}
+	for {
+		select {
+		case _, ok := <-a.cLines:
+			if !ok {
 				return
 			}
+		case <-a.escGuard:
+			a.escGuard = nil
+			return
 		}
 	}
 }
@@ -397,7 +488,7 @@ func (a *AT) writeSMSCommand(cmd string) error {
 
 // writeSMS writes the first line of a two line SMS command to the modem.
 func (a *AT) writeSMS(sms string) error {
-	_, err := a.modem.Write([]byte(sms + string(26)))
+	_, err := a.modem.Write([]byte(sms + string(sub)))
 	return err
 }
 
@@ -501,12 +592,10 @@ type indication struct {
 // This is the section prior to any '=' or '?' and is generally, but not
 // always, used to prefix info lines corresponding to the command.
 func parseCmdID(cmdLine string) string {
-	switch idx := strings.IndexAny(cmdLine, "=?"); idx {
-	case -1:
-		return cmdLine
-	default:
+	if idx := strings.IndexAny(cmdLine, "=?"); idx != -1 {
 		return cmdLine[0:idx]
 	}
+	return cmdLine
 }
 
 // parseRxLine parses a received line and identifies the line type.
