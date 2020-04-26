@@ -618,9 +618,12 @@ func TestAddIndication(t *testing.T) {
 	m, mm := setupModem(t, nil)
 	defer teardownModem(mm)
 
-	c, err := m.AddIndication("notify", 0)
+	c := make(chan []string)
+	handler := func(info []string) {
+		c <- info
+	}
+	err := m.AddIndication("notify", handler)
 	assert.Nil(t, err)
-	require.NotNil(t, c)
 	select {
 	case n := <-c:
 		t.Errorf("got notification without write: %v", n)
@@ -633,76 +636,119 @@ func TestAddIndication(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Errorf("no notification received")
 	}
-	c2, err := m.AddIndication("notify", 0)
+	err = m.AddIndication("notify", handler)
 	assert.Equal(t, at.ErrIndicationExists, err)
-	assert.Nil(t, c2, "shouldn't return channel on error")
-	c2, err = m.AddIndication("foo", 2)
+
+	err = m.AddIndication("foo", handler, at.WithTrailingLines(2))
 	assert.Nil(t, err)
-	require.NotNil(t, c2)
 	mm.r <- []byte("foo:\r\nbar\r\nbaz\r\n")
 	select {
-	case n := <-c2:
+	case n := <-c:
 		assert.Equal(t, []string{"foo:", "bar", "baz"}, n)
 	case <-time.After(100 * time.Millisecond):
 		t.Errorf("no notification received")
 	}
-	mm.Close()
-	select {
-	case <-c:
-	case <-time.After(100 * time.Millisecond):
-		t.Error("channel still open")
+}
+
+func TestWithIndication(t *testing.T) {
+	c := make(chan []string)
+	handler := func(info []string) {
+		c <- info
 	}
+	m, mm := setupModem(t,
+		nil,
+		at.WithIndication("notify", handler),
+		at.WithIndication("foo", handler, at.WithTrailingLines(2)))
+	defer teardownModem(mm)
+
 	select {
-	case <-c2:
-	case <-time.After(100 * time.Millisecond):
-		t.Error("channel 2 still open")
+	case n := <-c:
+		t.Errorf("got notification without write: %v", n)
+	default:
 	}
-	c2, err = m.AddIndication("foo", 2)
-	assert.Equal(t, at.ErrClosed, err)
-	assert.Nil(t, c2, "shouldn't return channel on error")
+	mm.r <- []byte("notify: :yfiton\r\n")
+	select {
+	case n := <-c:
+		assert.Equal(t, []string{"notify: :yfiton"}, n)
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("no notification received")
+	}
+	err := m.AddIndication("notify", handler)
+	assert.Equal(t, at.ErrIndicationExists, err)
+
+	mm.r <- []byte("foo:\r\nbar\r\nbaz\r\n")
+	select {
+	case n := <-c:
+		assert.Equal(t, []string{"foo:", "bar", "baz"}, n)
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("no notification received")
+	}
 }
 
 func TestCancelIndication(t *testing.T) {
 	m, mm := setupModem(t, nil)
 	defer teardownModem(mm)
 
-	c, err := m.AddIndication("notify", 0)
-	assert.Nil(t, err)
-	require.NotNil(t, c)
-	c2, err := m.AddIndication("foo", 2)
-	assert.Nil(t, err)
-	require.NotNil(t, c2)
-	m.CancelIndication("notify")
-	select {
-	case <-c:
-	case <-time.After(100 * time.Millisecond):
-		t.Error("channel still open")
+	c := make(chan []string)
+	handler := func(info []string) {
+		c <- info
 	}
+	err := m.AddIndication("notify", handler)
+	assert.Nil(t, err)
+
+	err = m.AddIndication("foo", handler, at.WithTrailingLines(2))
+	assert.Nil(t, err)
+
+	m.CancelIndication("notify")
+	mm.r <- []byte("foo:\r\nbar\r\nbaz\r\n")
+	select {
+	case n := <-c:
+		assert.Equal(t, []string{"foo:", "bar", "baz"}, n)
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("no notification received")
+	}
+
 	mm.Close()
 	select {
-	case <-c2:
-	case <-time.After(100 * time.Millisecond):
-		t.Error("channel still open")
+	case <-time.After(10 * time.Millisecond):
+		t.Fatal("modem failed to close")
+	case <-m.Closed():
 	}
 	// for coverage of cancel while closed
 	m.CancelIndication("foo")
-
 }
 
 func TestAddIndicationClose(t *testing.T) {
-	m, mm := setupModem(t, nil)
+	handler := func(info []string) {
+		t.Error("returned partial info")
+	}
+	m, mm := setupModem(t, nil,
+		at.WithIndication("foo:", handler, at.WithTrailingLines(2)))
 	defer teardownModem(mm)
 
-	c, err := m.AddIndication("foo:", 2)
-	assert.Nil(t, err)
-	require.NotNil(t, c)
 	mm.r <- []byte("foo:\r\nbar\r\n")
 	mm.Close()
 	select {
-	case <-c:
+	case <-m.Closed():
 	case <-time.After(100 * time.Millisecond):
-		t.Error("channel 2 still open")
+		t.Error("modem still open")
 	}
+}
+
+func TestAddIndicationClosed(t *testing.T) {
+	m, mm := setupModem(t, nil)
+	defer teardownModem(mm)
+
+	handler := func(info []string) {
+	}
+	mm.Close()
+	select {
+	case <-time.After(10 * time.Millisecond):
+		t.Fatal("modem failed to close")
+	case <-m.Closed():
+	}
+	err := m.AddIndication("notify", handler)
+	assert.Equal(t, at.ErrClosed, err)
 }
 
 func TestCMEError(t *testing.T) {
@@ -804,14 +850,14 @@ func (m *mockModem) Close() error {
 	return nil
 }
 
-func setupModem(t *testing.T, cmdSet map[string][]string) (*at.AT, *mockModem) {
+func setupModem(t *testing.T, cmdSet map[string][]string, options ...at.Option) (*at.AT, *mockModem) {
 	mm := &mockModem{cmdSet: cmdSet, echo: true, r: make(chan []byte, 10)}
 	var modem io.ReadWriter = mm
 	debug := false // set to true to enable tracing of the flow to the mockModem.
 	if debug {
 		modem = trace.New(modem)
 	}
-	a := at.New(modem)
+	a := at.New(modem, options...)
 	require.NotNil(t, a)
 	return a, mm
 }

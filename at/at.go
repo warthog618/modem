@@ -110,6 +110,24 @@ func WithEscTime(d time.Duration) Option {
 	}
 }
 
+// InfoHandler receives indication info.
+type InfoHandler func([]string)
+
+// WithIndication adds an indication during construction.
+func WithIndication(prefix string, handler InfoHandler, options ...IndicationOption) Option {
+	ind := indication{
+		prefix:  prefix,
+		handler: handler,
+		lines:   1,
+	}
+	for _, option := range options {
+		option(&ind)
+	}
+	return func(a *AT) {
+		a.inds[prefix] = ind
+	}
+}
+
 // WithInitCmds specifies the commands issued by Init.
 //
 // The default commands are ATZ and AT^CURC=0.
@@ -126,12 +144,12 @@ func (a *AT) Closed() <-chan struct{} {
 
 // Command issues the command to the modem and returns the result.
 //
-// The command should NOT include the AT prefix, or <CR><LF> suffix which is
+// The command should NOT include the AT prefix, nor <CR><LF> suffix which is
 // automatically added.
 //
 // The return value includes the info (the lines returned by the modem between
-// the command and the status line), and an error which is non-nil if the
-// command did not complete successfully.
+// the command and the status line), or an error if the command did not
+// complete successfully.
 func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
 	done := make(chan response)
 	cmdf := func() {
@@ -149,29 +167,29 @@ func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
 
 // AddIndication adds a handler for a set of lines beginning with the prefixed
 // line and the following trailing lines.
-//
-// Each set of lines is returned via the returned channel.
-// The return channel is closed when the AT closes.
-func (a *AT) AddIndication(prefix string, trailingLines int) (evtCh <-chan []string, err error) {
-	done := make(chan chan []string)
+func (a *AT) AddIndication(prefix string, handler InfoHandler, options ...IndicationOption) (err error) {
+	ind := indication{
+		prefix:  prefix,
+		handler: handler,
+		lines:   1,
+	}
+	for _, option := range options {
+		option(&ind)
+	}
 	errs := make(chan error)
 	indf := func() {
-		if _, ok := a.inds[prefix]; ok {
+		if _, ok := a.inds[ind.prefix]; ok {
 			errs <- ErrIndicationExists
 			return
 		}
-		i := indication{prefix, trailingLines + 1, make(chan []string)}
-		a.inds[prefix] = i
-		done <- i.c
+		a.inds[ind.prefix] = ind
+		close(errs)
 	}
 	select {
 	case <-a.closed:
 		err = ErrClosed
 	case a.indCh <- indf:
-		select {
-		case evtCh = <-done:
-		case err = <-errs:
-		}
+		err = <-errs
 	}
 	return
 }
@@ -183,11 +201,7 @@ func (a *AT) AddIndication(prefix string, trailingLines int) (evtCh <-chan []str
 func (a *AT) CancelIndication(prefix string) {
 	done := make(chan struct{})
 	indf := func() {
-		i, ok := a.inds[prefix]
-		if ok {
-			close(i.c)
-			delete(a.inds, prefix)
-		}
+		delete(a.inds, prefix)
 		close(done)
 	}
 	select {
@@ -296,33 +310,27 @@ func lineReader(m io.Reader, out chan string) {
 //
 // indLoop exits when the in channel closes.
 func (a *AT) indLoop(cmds chan func(), in <-chan string, out chan string) {
-	defer func() {
-		for k, v := range a.inds {
-			close(v.c)
-			delete(a.inds, k)
-		}
-	}()
+	defer close(out)
 	for {
 		select {
 		case cmd := <-cmds:
 			cmd()
 		case line, ok := <-in:
 			if !ok {
-				close(out)
 				return
 			}
-			for k, v := range a.inds {
-				if strings.HasPrefix(line, k) {
-					n := make([]string, v.totalLines)
+			for prefix, ind := range a.inds {
+				if strings.HasPrefix(line, prefix) {
+					n := make([]string, ind.lines)
 					n[0] = line
-					for i := 1; i < v.totalLines; i++ {
+					for i := 1; i < ind.lines; i++ {
 						t, ok := <-in
 						if !ok {
 							return
 						}
 						n[i] = t
 					}
-					v.c <- n
+					ind.handler(n)
 					continue
 				}
 			}
@@ -597,12 +605,27 @@ const (
 //
 // Indications are lines prefixed with a particular pattern, and may include a
 // number of trailing lines. The matching lines are bundled into a slice and
-// sent to the channel.
+// sent to the handler.
 type indication struct {
-	prefix     string
-	totalLines int
-	c          chan []string
+	prefix  string
+	lines   int
+	handler InfoHandler
 }
+
+// IndicationOption alters the behavior of the indication.
+type IndicationOption func(*indication)
+
+// WithTrailingLines indicates the indication includes a number of lines after
+// the line containing the indication.
+func WithTrailingLines(l int) func(*indication) {
+	return func(ind *indication) {
+		ind.lines = l + 1
+	}
+}
+
+// WithTrailingLine indicates the indication includes one line after the line
+// containing the indication.
+var WithTrailingLine = WithTrailingLines(1)
 
 // parseCmdID returns the identifier component of the command.
 //

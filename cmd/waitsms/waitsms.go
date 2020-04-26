@@ -14,7 +14,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"strconv"
@@ -25,6 +27,7 @@ import (
 	"github.com/warthog618/sms/encoding/pdumode"
 	"github.com/warthog618/sms/encoding/tpdu"
 
+	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/gsm"
 	"github.com/warthog618/modem/serial"
 	"github.com/warthog618/modem/trace"
@@ -58,106 +61,100 @@ func main() {
 		log.Println(err)
 		return
 	}
-	ctx, cancel = context.WithTimeout(context.Background(), *period)
-	defer cancel()
-	go pollSignalQuality(ctx, g, timeout)
-	waitForSMSs(ctx, g, timeout)
+	go pollSignalQuality(g, timeout)
+	waitForSMSs(g, timeout)
+	for {
+		select {
+		case <-time.After(*period):
+			log.Println("exiting...")
+			return
+		case <-g.Closed():
+			log.Fatal("modem closed, exiting...")
+		}
+	}
 }
 
 // pollSignalQuality polls the modem to read signal quality every minute.
 //
 // This is run in parallel to waitForSMSs to demonstrate separate goroutines
 // interacting with the modem.
-func pollSignalQuality(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {
+func pollSignalQuality(g *gsm.GSM, timeout *time.Duration) {
 	for {
 		select {
 		case <-time.After(time.Minute):
-			tctx, tcancel := context.WithTimeout(ctx, *timeout)
-			i, err := g.Command(tctx, "+CSQ")
+			ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+			i, err := g.Command(ctx, "+CSQ")
+			cancel()
 			if err != nil {
 				log.Println(err)
 			} else {
 				log.Printf("Signal quality: %v\n", i)
 			}
-			tcancel()
-		case <-ctx.Done():
+		case <-g.Closed():
 			return
 		}
 	}
+}
+
+func unmarshalTPDU(info []string) (tp tpdu.TPDU, err error) {
+	if info == nil {
+		err = errors.New("received nil info")
+		return
+	}
+	lstr := strings.Split(info[0], ",")
+	l, serr := strconv.Atoi(lstr[len(lstr)-1])
+	if serr != nil {
+		err = serr
+		return
+	}
+	pdu, perr := pdumode.UnmarshalHexString(info[1])
+	if perr != nil {
+		err = perr
+		return
+	}
+	if int(l) != len(pdu.TPDU) {
+		err = fmt.Errorf("length mismatch - expected %d, got %d", l, len(pdu.TPDU))
+		return
+	}
+	err = tp.UnmarshalBinary(pdu.TPDU)
+	return
 }
 
 // waitForSMSs adds an indication to the modem and prints any received SMSs.
 //
 // It will continue to wait until the provided context is done.
 // It reassembles multi-part SMSs into a complete message prior to display.
-func waitForSMSs(ctx context.Context, g *gsm.GSM, timeout *time.Duration) {
-	cmt, err := g.AddIndication("+CMT:", 1)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	cctx, cancel := context.WithTimeout(ctx, *timeout)
-	// tell the modem to forward SMSs to us.
-	if _, err = g.Command(cctx, "+CNMI=1,2,2,1,0"); err != nil {
-		log.Println(err)
+func waitForSMSs(g *gsm.GSM, timeout *time.Duration) error {
+	c := sms.NewCollector()
+	cmtHandler := func(info []string) {
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		g.Command(ctx, "+CNMA")
 		cancel()
-		return
-	}
-	cancel()
-	reassemblyTimeout := func(tpdus []*tpdu.TPDU) {
-		log.Printf("reassembly timeout: %v", tpdus)
-	}
-	c := sms.NewCollector(sms.WithReassemblyTimeout(time.Hour, reassemblyTimeout))
-	defer c.Close()
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("exiting...")
+		tp, err := unmarshalTPDU(info)
+		if err != nil {
+			log.Printf("err: %v\n", err)
 			return
-		case i, ok := <-cmt:
-			if !ok {
-				log.Fatal("modem closed, exiting...")
-			}
-			if i == nil {
-				log.Println("received nil info")
-				continue
-			}
-			actx, acancel := context.WithTimeout(ctx, *timeout)
-			g.Command(actx, "+CNMA")
-			acancel()
-			lstr := strings.Split(i[0], ",")
-			l, err := strconv.Atoi(lstr[len(lstr)-1])
-			if err != nil {
-				log.Printf("err: %v\n", err)
-				continue
-			}
-			pdu, err := pdumode.UnmarshalHexString(i[1])
-			if err != nil {
-				log.Printf("err: %v\n", err)
-				continue
-			}
-			if int(l) != len(pdu.TPDU) {
-				log.Printf("length mismatch - expected %d, got %d", l, len(pdu.TPDU))
-				continue
-			}
-			tp := tpdu.TPDU{}
-			err = tp.UnmarshalBinary(pdu.TPDU)
-			if err != nil {
-				log.Printf("err: %v\n", err)
-				continue
-			}
-			tpdus, err := c.Collect(tp)
-			if err != nil {
-				log.Printf("err: %v\n", err)
-				continue
-			}
-			m, err := sms.Decode(tpdus)
-			if err != nil {
-				log.Printf("err: %v\n", err)
-			}
-			if m != nil {
-				log.Printf("%s: %s\n", tpdus[0].OA.Number(), m)
-			}
+		}
+		tpdus, err := c.Collect(tp)
+		if err != nil {
+			log.Printf("err: %v\n", err)
+			return
+		}
+		m, err := sms.Decode(tpdus)
+		if err != nil {
+			log.Printf("err: %v\n", err)
+		}
+		if m != nil {
+			log.Printf("%s: %s\n", tpdus[0].OA.Number(), m)
 		}
 	}
+	err := g.AddIndication("+CMT:", cmtHandler, at.WithTrailingLine)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	// tell the modem to forward SMSs to us.
+	_, err = g.Command(ctx, "+CNMI=1,2,2,1,0")
+	cancel()
+	return err
 }
