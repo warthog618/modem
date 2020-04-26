@@ -10,7 +10,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -38,10 +37,8 @@ func main() {
 	if *verbose {
 		mio = trace.New(m)
 	}
-	a := at.New(mio)
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	err = a.Init(ctx)
-	cancel()
+	a := at.New(mio, at.WithTimeout(*timeout))
+	err = a.Init()
 	if err != nil {
 		log.Println(err)
 		return
@@ -70,9 +67,7 @@ func main() {
 		"+CMGF=?",
 	}
 	for _, cmd := range cmds {
-		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-		info, err := a.Command(ctx, cmd)
-		cancel()
+		info, err := a.Command(cmd)
 		fmt.Println("AT" + cmd)
 		if err != nil {
 			fmt.Printf(" %s\n", err)
@@ -81,6 +76,5 @@ func main() {
 		for _, l := range info {
 			fmt.Printf(" %s\n", l)
 		}
-
 	}
 }

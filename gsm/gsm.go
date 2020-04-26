@@ -6,10 +6,8 @@
 package gsm
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/warthog618/modem/at"
@@ -25,63 +23,54 @@ type GSM struct {
 }
 
 // Option is a construction option for the GSM.
-type Option func(*GSM)
+type Option interface {
+	applyOption(*GSM)
+}
 
 // New creates a new GSM modem.
-func New(options ...Option) *GSM {
-	g := GSM{}
+func New(a *at.AT, options ...Option) *GSM {
+	g := GSM{AT: a}
 	for _, option := range options {
-		option(&g)
-	}
-	if g.AT == nil {
-		return nil
+		option.applyOption(&g)
 	}
 	return &g
 }
 
-// FromReadWriter specifies a ReadWriter that will be wrapped in a generic at.AT.
-//
-// If you require a customised at.AT then use FromAT instead.
-func FromReadWriter(rw io.ReadWriter) Option {
-	return func(g *GSM) {
-		g.AT = at.New(rw)
-	}
-}
+type PDUModeOption bool
 
-// FromAT specifies an explicit AT that the GSM should wrap.
-func FromAT(a *at.AT) Option {
-	return func(g *GSM) {
-		g.AT = a
-	}
+func (o PDUModeOption) applyOption(g *GSM) {
+	g.pduMode = bool(o)
 }
 
 // WithPDUMode specifies that the modem is to be used in PDU mode.
 //
 // The default is text mode.
-var WithPDUMode = func(g *GSM) {
-	g.pduMode = true
-}
+var WithPDUMode = PDUModeOption(true)
+
+type SCAOption pdumode.SMSCAddress
 
 // WithSCA sets the SCA used when transmitting SMSs.
 //
 // This overrides the default set in the SIM.
 //
 // The SCA is only relevant in PDU mode, so this option also enables PDU mode.
-func WithSCA(sca pdumode.SMSCAddress) Option {
-	return func(g *GSM) {
-		g.pduMode = true
-		g.sca = sca
-	}
+func WithSCA(sca pdumode.SMSCAddress) SCAOption {
+	return SCAOption(sca)
+}
+
+func (o SCAOption) applyOption(g *GSM) {
+	g.pduMode = true
+	g.sca = pdumode.SMSCAddress(o)
 }
 
 // Init initialises the GSM modem.
-func (g *GSM) Init(ctx context.Context, initCmds ...string) (err error) {
-	if err = g.AT.Init(ctx, initCmds...); err != nil {
+func (g *GSM) Init(options ...at.InitOption) (err error) {
+	if err = g.AT.Init(options...); err != nil {
 		return
 	}
 	// test GCAP response to ensure +GSM support, and modem sync.
 	var i []string
-	i, err = g.Command(ctx, "+GCAP")
+	i, err = g.Command("+GCAP")
 	if err != nil {
 		return
 	}
@@ -105,7 +94,7 @@ func (g *GSM) Init(ctx context.Context, initCmds ...string) (err error) {
 		cmds[0] = "+CMGF=0" // pdu mode
 	}
 	for _, cmd := range cmds {
-		_, err = g.Command(ctx, cmd)
+		_, err = g.Command(cmd)
 		if err != nil {
 			return
 		}
@@ -116,13 +105,13 @@ func (g *GSM) Init(ctx context.Context, initCmds ...string) (err error) {
 // SendSMS sends an SMS message to the number.
 //
 // The mr is returned on success, else an error.
-func (g *GSM) SendSMS(ctx context.Context, number string, message string) (rsp string, err error) {
+func (g *GSM) SendSMS(number string, message string, options ...at.CommandOption) (rsp string, err error) {
 	if g.pduMode {
 		err = ErrWrongMode
 		return
 	}
 	var i []string
-	i, err = g.SMSCommand(ctx, "+CMGS=\""+number+"\"", message)
+	i, err = g.SMSCommand("+CMGS=\""+number+"\"", message, options...)
 	if err != nil {
 		return
 	}
@@ -141,7 +130,7 @@ func (g *GSM) SendSMS(ctx context.Context, number string, message string) (rsp s
 //
 // tpdu is the binary TPDU to be sent.
 // The mr is returned on success, else an error.
-func (g *GSM) SendSMSPDU(ctx context.Context, tpdu []byte) (rsp string, err error) {
+func (g *GSM) SendSMSPDU(tpdu []byte, options ...at.CommandOption) (rsp string, err error) {
 	if !g.pduMode {
 		return "", ErrWrongMode
 	}
@@ -152,7 +141,7 @@ func (g *GSM) SendSMSPDU(ctx context.Context, tpdu []byte) (rsp string, err erro
 		return
 	}
 	var i []string
-	i, err = g.SMSCommand(ctx, fmt.Sprintf("+CMGS=%d", len(tpdu)), s)
+	i, err = g.SMSCommand(fmt.Sprintf("+CMGS=%d", len(tpdu)), s, options...)
 	if err != nil {
 		return
 	}

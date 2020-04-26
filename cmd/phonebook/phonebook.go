@@ -8,7 +8,6 @@
 package main
 
 import (
-	"context"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/gsm"
 	"github.com/warthog618/modem/info"
 	"github.com/warthog618/modem/serial"
@@ -38,17 +38,13 @@ func main() {
 	if *verbose {
 		mio = trace.New(m)
 	}
-	g := gsm.New(gsm.FromReadWriter(mio))
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	err = g.Init(ctx)
-	cancel()
+	g := gsm.New(at.New(mio, at.WithTimeout(*timeout)))
+	err = g.Init()
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	ctx, cancel = context.WithTimeout(context.Background(), *timeout)
-	i, err := g.Command(ctx, "+CPBR=1,99")
-	cancel()
+	i, err := g.Command("+CPBR=1,99")
 	if err != nil {
 		log.Println(err)
 		return

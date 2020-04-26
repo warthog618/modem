@@ -7,7 +7,6 @@ package at
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -50,8 +49,11 @@ type AT struct {
 	// the minimum time between an escape command and the subsequent command
 	escTime time.Duration
 
+	// time to wait for individual commands to complete
+	cmdTimeout time.Duration
+
 	// indications mapped by prefix
-	inds map[string]indication // only modified in nLoop
+	inds map[string]Indication // only modified in nLoop
 
 	// commands issued by Init.
 	initCmds []string
@@ -59,27 +61,30 @@ type AT struct {
 	// covers escGuard
 	escGuardMu sync.Mutex
 
-	// if not-nil, the time the subsequent command must wait
-	escGuard <-chan time.Time
+	// if not-nil, the timer that must expire before the subsequent command is issued
+	escGuard *time.Timer
 }
 
 // Option is a construction option for an AT.
-type Option func(*AT)
+type Option interface {
+	applyOption(*AT)
+}
 
 // New creates a new AT modem.
 func New(modem io.ReadWriter, options ...Option) *AT {
 	a := &AT{
-		modem:   modem,
-		cmdCh:   make(chan func()),
-		indCh:   make(chan func()),
-		iLines:  make(chan string),
-		cLines:  make(chan string),
-		closed:  make(chan struct{}),
-		escTime: 20 * time.Millisecond,
-		inds:    make(map[string]indication),
+		modem:      modem,
+		cmdCh:      make(chan func()),
+		indCh:      make(chan func()),
+		iLines:     make(chan string),
+		cLines:     make(chan string),
+		closed:     make(chan struct{}),
+		escTime:    20 * time.Millisecond,
+		cmdTimeout: time.Second,
+		inds:       make(map[string]Indication),
 	}
 	for _, option := range options {
-		option(a)
+		option.applyOption(a)
 	}
 	if a.initCmds == nil {
 		a.initCmds = []string{
@@ -104,37 +109,67 @@ const (
 // the modem and any subsequent commands.
 //
 // The default guard time is 20msec.
-func WithEscTime(d time.Duration) Option {
-	return func(a *AT) {
-		a.escTime = d
-	}
+func WithEscTime(d time.Duration) EscTimeOption {
+	return EscTimeOption(d)
+}
+
+// EscTimeOption defines the escape guard time for the modem.
+type EscTimeOption time.Duration
+
+func (o EscTimeOption) applyOption(a *AT) {
+	a.escTime = time.Duration(o)
 }
 
 // InfoHandler receives indication info.
 type InfoHandler func([]string)
 
 // WithIndication adds an indication during construction.
-func WithIndication(prefix string, handler InfoHandler, options ...IndicationOption) Option {
-	ind := indication{
-		prefix:  prefix,
-		handler: handler,
-		lines:   1,
-	}
-	for _, option := range options {
-		option(&ind)
-	}
-	return func(a *AT) {
-		a.inds[prefix] = ind
-	}
+func WithIndication(prefix string, handler InfoHandler, options ...IndicationOption) Indication {
+	return newIndication(prefix, handler, options...)
 }
 
-// WithInitCmds specifies the commands issued by Init.
+func (o Indication) applyOption(a *AT) {
+	a.inds[o.prefix] = o
+}
+
+// CmdsOption specifies the set of AT commands issued by Init.
+type CmdsOption []string
+
+func (o CmdsOption) applyOption(a *AT) {
+	a.initCmds = []string(o)
+}
+
+func (o CmdsOption) applyInitOption(i *initConfig) {
+	i.cmds = []string(o)
+}
+
+// WithCmds specifies the set of AT commands issued by Init.
 //
 // The default commands are ATZ and AT^CURC=0.
-func WithInitCmds(cmds ...string) Option {
-	return func(a *AT) {
-		a.initCmds = cmds
-	}
+func WithCmds(cmds ...string) CmdsOption {
+	return CmdsOption(cmds)
+}
+
+// WithTimeout specifies the maximum time allowed for the modem to complete a
+// command.
+func WithTimeout(d time.Duration) TimeoutOption {
+	return TimeoutOption(d)
+}
+
+// TimeoutOption specifies the maximum time allowed for the modem to complete a
+// command.
+type TimeoutOption time.Duration
+
+func (o TimeoutOption) applyOption(a *AT) {
+	a.cmdTimeout = time.Duration(o)
+}
+
+func (o TimeoutOption) applyInitOption(i *initConfig) {
+	i.cmdOpts = append(i.cmdOpts, o)
+}
+
+func (o TimeoutOption) applyCommandOption(c *commandConfig) {
+	c.timeout = time.Duration(o)
 }
 
 // Closed returns a channel which will block while the modem is not closed.
@@ -150,10 +185,14 @@ func (a *AT) Closed() <-chan struct{} {
 // The return value includes the info (the lines returned by the modem between
 // the command and the status line), or an error if the command did not
 // complete successfully.
-func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
+func (a *AT) Command(cmd string, options ...CommandOption) ([]string, error) {
+	cfg := commandConfig{timeout: a.cmdTimeout}
+	for _, option := range options {
+		option.applyCommandOption(&cfg)
+	}
 	done := make(chan response)
 	cmdf := func() {
-		info, err := a.processReq(ctx, cmd)
+		info, err := a.processReq(cmd, cfg.timeout)
 		done <- response{info: info, err: err}
 	}
 	select {
@@ -165,17 +204,22 @@ func (a *AT) Command(ctx context.Context, cmd string) ([]string, error) {
 	}
 }
 
-// AddIndication adds a handler for a set of lines beginning with the prefixed
-// line and the following trailing lines.
-func (a *AT) AddIndication(prefix string, handler InfoHandler, options ...IndicationOption) (err error) {
-	ind := indication{
+func newIndication(prefix string, handler InfoHandler, options ...IndicationOption) Indication {
+	ind := Indication{
 		prefix:  prefix,
 		handler: handler,
 		lines:   1,
 	}
 	for _, option := range options {
-		option(&ind)
+		option.applyIndicationOption(&ind)
 	}
+	return ind
+}
+
+// AddIndication adds a handler for a set of lines beginning with the prefixed
+// line and the following trailing lines.
+func (a *AT) AddIndication(prefix string, handler InfoHandler, options ...IndicationOption) (err error) {
+	ind := newIndication(prefix, handler, options...)
 	errs := make(chan error)
 	indf := func() {
 		if _, ok := a.inds[ind.prefix]; ok {
@@ -211,6 +255,26 @@ func (a *AT) CancelIndication(prefix string) {
 	}
 }
 
+type initConfig struct {
+	timeout time.Duration
+	cmds    []string
+	cmdOpts []CommandOption
+}
+
+type commandConfig struct {
+	timeout time.Duration
+}
+
+// InitOption defines a behaviouralk option for Init.
+type InitOption interface {
+	applyInitOption(*initConfig)
+}
+
+// CommandOption defines a behaviouralk option for Command and SMSCommand.
+type CommandOption interface {
+	applyCommandOption(*commandConfig)
+}
+
 // Init initialises the modem by escaping any outstanding SMS commands
 // and resetting the modem to factory defaults.
 //
@@ -218,19 +282,20 @@ func (a *AT) CancelIndication(prefix string) {
 // are issued in order to get the modem into a known state.
 //
 // The default init commands can be overridden by the cmds parameter.
-func (a *AT) Init(ctx context.Context, cmds ...string) error {
+func (a *AT) Init(options ...InitOption) error {
 	// escape any outstanding SMS operations then CR to flush the command
 	// buffer
 	a.escape([]byte("\r\n")...)
 
-	if cmds == nil {
-		cmds = a.initCmds
+	cfg := initConfig{cmds: a.initCmds}
+	for _, option := range options {
+		option.applyInitOption(&cfg)
 	}
-	for _, cmd := range cmds {
-		_, err := a.Command(ctx, cmd)
+	for _, cmd := range cfg.cmds {
+		_, err := a.Command(cmd, cfg.cmdOpts...)
 		switch err {
 		case nil:
-		case context.DeadlineExceeded, context.Canceled:
+		case ErrDeadlineExceeded:
 			return err
 		default:
 			return fmt.Errorf("AT%s returned error: %w", cmd, err)
@@ -255,10 +320,14 @@ func (a *AT) Init(ctx context.Context, cmds ...string) error {
 //
 // The format of the sms may be a text message or a hex coded SMS PDU,
 // depending on the configuration of the modem (text or PDU mode).
-func (a *AT) SMSCommand(ctx context.Context, cmd string, sms string) (info []string, err error) {
+func (a *AT) SMSCommand(cmd string, sms string, options ...CommandOption) (info []string, err error) {
+	cfg := commandConfig{timeout: a.cmdTimeout}
+	for _, option := range options {
+		option.applyCommandOption(&cfg)
+	}
 	done := make(chan response)
 	cmdf := func() {
-		info, err := a.processSmsReq(ctx, cmd, sms)
+		info, err := a.processSmsReq(cmd, sms, cfg.timeout)
 		done <- response{info: info, err: err}
 	}
 	select {
@@ -339,17 +408,24 @@ func (a *AT) indLoop(cmds chan func(), in <-chan string, out chan string) {
 	}
 }
 
-func (a *AT) processReq(ctx context.Context, cmd string) (info []string, err error) {
+func (a *AT) processReq(cmd string, timeout time.Duration) (info []string, err error) {
 	a.waitEscGuard()
 	err = a.writeCommand(cmd)
 	if err != nil {
 		return
 	}
+
 	cmdID := parseCmdID(cmd)
+	var expChan <-chan time.Time
+	if timeout >= 0 {
+		expiry := time.NewTimer(timeout)
+		expChan = expiry.C
+		defer expiry.Stop()
+	}
 	for {
 		select {
-		case <-ctx.Done():
-			err = ctx.Err()
+		case <-expChan:
+			err = ErrDeadlineExceeded
 			return
 		case line, ok := <-a.cLines:
 			if !ok {
@@ -374,19 +450,25 @@ func (a *AT) processReq(ctx context.Context, cmd string) (info []string, err err
 	}
 }
 
-func (a *AT) processSmsReq(ctx context.Context, cmd string, sms string) (info []string, err error) {
+func (a *AT) processSmsReq(cmd string, sms string, timeout time.Duration) (info []string, err error) {
 	a.waitEscGuard()
 	err = a.writeSMSCommand(cmd)
 	if err != nil {
 		return
 	}
 	cmdID := parseCmdID(cmd)
+	var expChan <-chan time.Time
+	if timeout >= 0 {
+		expiry := time.NewTimer(timeout)
+		expChan = expiry.C
+		defer expiry.Stop()
+	}
 	for {
 		select {
-		case <-ctx.Done():
+		case <-expChan:
 			// cancel outstanding SMS request
 			a.escape()
-			err = ctx.Err()
+			err = ErrDeadlineExceeded
 			return
 		case line, ok := <-a.cLines:
 			if !ok {
@@ -473,7 +555,7 @@ func (a *AT) escape(b ...byte) {
 // a short period of time (default 20ms).
 func (a *AT) startEscGuard() {
 	a.escGuardMu.Lock()
-	a.escGuard = time.After(a.escTime)
+	a.escGuard = time.NewTimer(a.escTime)
 	a.escGuardMu.Unlock()
 }
 
@@ -484,17 +566,19 @@ func (a *AT) waitEscGuard() {
 	if a.escGuard == nil {
 		return
 	}
+Loop:
 	for {
 		select {
 		case _, ok := <-a.cLines:
 			if !ok {
-				return
+				a.escGuard.Stop()
+				break Loop
 			}
-		case <-a.escGuard:
-			a.escGuard = nil
-			return
+		case <-a.escGuard.C:
+			break Loop
 		}
 	}
+	a.escGuard = nil
 }
 
 // writeCommand writes a one line command to the modem.
@@ -551,6 +635,10 @@ var (
 	// been closed.
 	ErrClosed = errors.New("closed")
 
+	// ErrDeadlineExceeded indicates the modem failed to complete an operation
+	// within the required time.
+	ErrDeadlineExceeded = errors.New("deadline exceeded")
+
 	// ErrError indicates the modem returned a generic AT ERROR in response to
 	// an operation.
 	ErrError = errors.New("ERROR")
@@ -600,32 +688,43 @@ const (
 	rxlConnectError
 )
 
-// indication represents an unsolicited result code (URC) from the modem, such
+// Indication represents an unsolicited result code (URC) from the modem, such
 // as a received SMS message.
 //
 // Indications are lines prefixed with a particular pattern, and may include a
 // number of trailing lines. The matching lines are bundled into a slice and
 // sent to the handler.
-type indication struct {
+type Indication struct {
 	prefix  string
 	lines   int
 	handler InfoHandler
 }
 
 // IndicationOption alters the behavior of the indication.
-type IndicationOption func(*indication)
+type IndicationOption interface {
+	applyIndicationOption(*Indication)
+}
 
-// WithTrailingLines indicates the indication includes a number of lines after
-// the line containing the indication.
-func WithTrailingLines(l int) func(*indication) {
-	return func(ind *indication) {
-		ind.lines = l + 1
-	}
+// TrailingLinesOption specifies the number of trailing lines expected after an
+// indication line.
+type TrailingLinesOption int
+
+func (o TrailingLinesOption) applyIndicationOption(ind *Indication) {
+	ind.lines = int(o) + 1
+
+}
+
+// WithTrailingLines indicates the number of lines after the line containing
+// the indication that arew to be collected as part of the indication.
+//
+// The default is 0 - only the indication line itself is collected and returned.
+func WithTrailingLines(l int) TrailingLinesOption {
+	return TrailingLinesOption(l)
 }
 
 // WithTrailingLine indicates the indication includes one line after the line
 // containing the indication.
-var WithTrailingLine = WithTrailingLines(1)
+var WithTrailingLine = TrailingLinesOption(1)
 
 // parseCmdID returns the identifier component of the command.
 //

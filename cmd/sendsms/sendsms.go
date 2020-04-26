@@ -9,12 +9,12 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"io"
 	"log"
 	"time"
 
+	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/gsm"
 	"github.com/warthog618/modem/serial"
 	"github.com/warthog618/modem/trace"
@@ -42,26 +42,24 @@ func main() {
 	} else if *verbose {
 		mio = trace.New(m)
 	}
-	gopts := []gsm.Option{gsm.FromReadWriter(mio)}
+	gopts := []gsm.Option{}
 	if *pdumode {
 		gopts = append(gopts, gsm.WithPDUMode)
 	}
-	g := gsm.New(gopts...)
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	defer cancel()
-	if err = g.Init(ctx); err != nil {
+	g := gsm.New(at.New(mio, at.WithTimeout(*timeout)), gopts...)
+	if err = g.Init(); err != nil {
 		log.Fatal(err)
 	}
 	if *pdumode {
-		sendPDU(ctx, g, *num, *msg)
+		sendPDU(g, *num, *msg)
 		return
 	}
-	mr, err := g.SendSMS(ctx, *num, *msg)
+	mr, err := g.SendSMS(*num, *msg)
 	// !!! check CPIN?? on failure to determine root cause??  If ERROR 302
 	log.Printf("%v %v\n", mr, err)
 }
 
-func sendPDU(ctx context.Context, g *gsm.GSM, number string, msg string) {
+func sendPDU(g *gsm.GSM, number string, msg string) {
 	pdus, err := sms.Encode([]byte(msg), sms.To(number), sms.WithAllCharsets)
 	if err != nil {
 		log.Fatal(err)
@@ -71,7 +69,7 @@ func sendPDU(ctx context.Context, g *gsm.GSM, number string, msg string) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		mr, err := g.SendSMSPDU(ctx, tp)
+		mr, err := g.SendSMSPDU(tp)
 		if err != nil {
 			// !!! check CPIN?? on failure to determine root cause??  If ERROR 302
 			log.Fatal(err)

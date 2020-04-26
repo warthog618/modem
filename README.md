@@ -50,7 +50,6 @@ Supports the following functionality:
 
 - Simple synchronous interface for AT commands
 - Serialises access to the modem from multiple goroutines
-- Context support to allow higher layers to specify timeouts
 - Asynchronous indication handling
 - Tracing of messages to and from the modem
 - Pluggable serial driver - any io.ReadWriter will suffice

@@ -13,7 +13,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -53,10 +52,8 @@ func main() {
 	} else if *verbose {
 		mio = trace.New(m)
 	}
-	g := gsm.New(gsm.FromReadWriter(mio), gsm.WithPDUMode)
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	err = g.Init(ctx)
-	cancel()
+	g := gsm.New(at.New(mio, at.WithTimeout(*timeout)), gsm.WithPDUMode)
+	err = g.Init()
 	if err != nil {
 		log.Println(err)
 		return
@@ -82,9 +79,7 @@ func pollSignalQuality(g *gsm.GSM, timeout *time.Duration) {
 	for {
 		select {
 		case <-time.After(time.Minute):
-			ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-			i, err := g.Command(ctx, "+CSQ")
-			cancel()
+			i, err := g.Command("+CSQ")
 			if err != nil {
 				log.Println(err)
 			} else {
@@ -127,9 +122,7 @@ func unmarshalTPDU(info []string) (tp tpdu.TPDU, err error) {
 func waitForSMSs(g *gsm.GSM, timeout *time.Duration) error {
 	c := sms.NewCollector()
 	cmtHandler := func(info []string) {
-		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-		g.Command(ctx, "+CNMA")
-		cancel()
+		g.Command("+CNMA")
 		tp, err := unmarshalTPDU(info)
 		if err != nil {
 			log.Printf("err: %v\n", err)
@@ -152,9 +145,7 @@ func waitForSMSs(g *gsm.GSM, timeout *time.Duration) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	// tell the modem to forward SMSs to us.
-	_, err = g.Command(ctx, "+CNMI=1,2,2,1,0")
-	cancel()
+	_, err = g.Command("+CNMI=1,2,2,1,0")
 	return err
 }

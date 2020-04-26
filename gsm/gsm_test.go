@@ -14,7 +14,6 @@
 package gsm_test
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"testing"
@@ -35,6 +34,7 @@ var debug = false // set to true to enable tracing of the flow to the mockModem.
 func TestNew(t *testing.T) {
 	mm := mockModem{cmdSet: nil, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
+	a := at.New(&mm)
 	patterns := []struct {
 		name    string
 		options []gsm.Option
@@ -43,22 +43,17 @@ func TestNew(t *testing.T) {
 		{
 			"default",
 			nil,
-			false,
-		},
-		{
-			"FromReaderWriter",
-			[]gsm.Option{gsm.FromReadWriter(&mm)},
 			true,
 		},
 		{
-			"FromAT",
-			[]gsm.Option{gsm.FromAT(at.New(&mm))},
+			"WithPDUMode",
+			[]gsm.Option{gsm.WithPDUMode},
 			true,
 		},
 	}
 	for _, p := range patterns {
 		f := func(t *testing.T) {
-			g := gsm.New(p.options...)
+			g := gsm.New(a, p.options...)
 			if p.success {
 				assert.NotNil(t, g)
 			} else {
@@ -81,13 +76,9 @@ func TestInit(t *testing.T) {
 		"AT+CMGF=1\r\n": {"OK\r\n"},
 		"AT+GCAP\r\n":   {"+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"},
 	}
-	background := context.Background()
-	cancelled, cancel := context.WithCancel(background)
-	cancel()
-	timeout, cancel := context.WithTimeout(background, 0)
 	patterns := []struct {
 		name     string
-		ctx      context.Context
+		options  []at.InitOption
 		residual []byte
 		key      string
 		value    []string
@@ -96,15 +87,16 @@ func TestInit(t *testing.T) {
 	}{
 		{
 			"vanilla",
-			background,
-			nil, "",
+			nil,
+			nil,
+			"",
 			nil,
 			false,
 			nil,
 		},
 		{
 			"residual OKs",
-			background,
+			nil,
 			[]byte("\r\nOK\r\nOK\r\n"),
 			"",
 			nil,
@@ -113,7 +105,7 @@ func TestInit(t *testing.T) {
 		},
 		{
 			"residual ERRORs",
-			background,
+			nil,
 			[]byte("\r\nERROR\r\nERROR\r\n"),
 			"",
 			nil,
@@ -122,7 +114,7 @@ func TestInit(t *testing.T) {
 		},
 		{
 			"cruft",
-			background,
+			nil,
 			nil,
 			"AT+GCAP\r\n",
 			[]string{"cruft\r\n", "+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"},
@@ -131,7 +123,7 @@ func TestInit(t *testing.T) {
 		},
 		{
 			"CMEE error",
-			background,
+			nil,
 			nil,
 			"AT+CMEE=2\r\n",
 			[]string{"ERROR\r\n"},
@@ -140,7 +132,7 @@ func TestInit(t *testing.T) {
 		},
 		{
 			"GCAP error",
-			background,
+			nil,
 			nil,
 			"AT+GCAP\r\n",
 			[]string{"ERROR\r\n"},
@@ -149,7 +141,7 @@ func TestInit(t *testing.T) {
 		},
 		{
 			"not GSM capable",
-			background,
+			nil,
 			nil,
 			"AT+GCAP\r\n",
 			[]string{"+GCAP: +DS,+ES\r\n", "OK\r\n"},
@@ -158,7 +150,7 @@ func TestInit(t *testing.T) {
 		},
 		{
 			"AT init failure",
-			background,
+			nil,
 			nil,
 			"ATZ\r\n",
 			[]string{"ERROR\r\n"},
@@ -166,26 +158,17 @@ func TestInit(t *testing.T) {
 			fmt.Errorf("ATZ returned error: %w", at.ErrError),
 		},
 		{
-			"cancelled",
-			cancelled,
-			nil,
-			"",
-			nil,
-			false,
-			context.Canceled,
-		},
-		{
 			"timeout",
-			timeout,
+			[]at.InitOption{at.WithTimeout(0)},
 			nil,
 			"",
 			nil,
 			false,
-			context.DeadlineExceeded,
+			at.ErrDeadlineExceeded,
 		},
 		{
 			"unsupported PDU mode",
-			background,
+			nil,
 			nil,
 			"",
 			nil,
@@ -194,7 +177,7 @@ func TestInit(t *testing.T) {
 		},
 		{
 			"PDU mode",
-			background,
+			nil,
 			nil,
 			"AT+CMGF=0\r\n",
 			[]string{"OK\r\n"},
@@ -206,11 +189,12 @@ func TestInit(t *testing.T) {
 		f := func(t *testing.T) {
 			mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
 			defer teardownModem(&mm)
-			gopts := []gsm.Option{gsm.FromReadWriter(&mm)}
+			a := at.New(&mm)
+			gopts := []gsm.Option{}
 			if p.pduMode {
 				gopts = append(gopts, gsm.WithPDUMode)
 			}
-			g := gsm.New(gopts...)
+			g := gsm.New(a, gopts...)
 			require.NotNil(t, g)
 			var oldvalue []string
 			if p.residual != nil {
@@ -220,7 +204,7 @@ func TestInit(t *testing.T) {
 				oldvalue = cmdSet[p.key]
 				cmdSet[p.key] = p.value
 			}
-			err := g.Init(p.ctx)
+			err := g.Init(p.options...)
 			if oldvalue != nil {
 				cmdSet[p.key] = oldvalue
 			}
@@ -228,7 +212,6 @@ func TestInit(t *testing.T) {
 		}
 		t.Run(p.name, f)
 	}
-	cancel()
 }
 
 func TestSendSMS(t *testing.T) {
@@ -239,13 +222,9 @@ func TestSendSMS(t *testing.T) {
 		"cruft test message" + string(26):     {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
 		"malformed test message" + string(26): {"\r\n", "pad\r\n", "\r\nOK\r\n"},
 	}
-	background := context.Background()
-	cancelled, cancel := context.WithCancel(background)
-	cancel()
-	timeout, cancel := context.WithTimeout(background, 0)
 	patterns := []struct {
 		name    string
-		ctx     context.Context
+		options []at.CommandOption
 		number  string
 		message string
 		err     error
@@ -253,7 +232,7 @@ func TestSendSMS(t *testing.T) {
 	}{
 		{
 			"ok",
-			background,
+			nil,
 			"+123456789",
 			"test message",
 			nil,
@@ -261,7 +240,7 @@ func TestSendSMS(t *testing.T) {
 		},
 		{
 			"error",
-			background,
+			nil,
 			"+1234567890",
 			"test message",
 			at.ErrError,
@@ -269,7 +248,7 @@ func TestSendSMS(t *testing.T) {
 		},
 		{
 			"cruft",
-			background,
+			nil,
 			"+123456789",
 			"cruft test message",
 			nil,
@@ -277,26 +256,18 @@ func TestSendSMS(t *testing.T) {
 		},
 		{
 			"malformed",
-			background,
+			nil,
 			"+123456789",
 			"malformed test message",
 			gsm.ErrMalformedResponse,
 			"",
 		},
 		{
-			"cancelled",
-			cancelled,
-			"+123456789",
-			"test message",
-			context.Canceled,
-			"",
-		},
-		{
 			"timeout",
-			timeout,
+			[]at.CommandOption{at.WithTimeout(0)},
 			"+123456789",
 			"test message",
-			context.DeadlineExceeded,
+			at.ErrDeadlineExceeded,
 			"",
 		},
 	}
@@ -307,13 +278,12 @@ func TestSendSMS(t *testing.T) {
 
 	for _, p := range patterns {
 		f := func(t *testing.T) {
-			mr, err := g.SendSMS(p.ctx, p.number, p.message)
+			mr, err := g.SendSMS(p.number, p.message, p.options...)
 			assert.Equal(t, p.err, err)
 			assert.Equal(t, p.mr, mr)
 		}
 		t.Run(p.name, f)
 	}
-	cancel()
 
 	// wrong mode
 	g, mm = setupModem(t, cmdSet, gsm.WithPDUMode)
@@ -321,7 +291,7 @@ func TestSendSMS(t *testing.T) {
 	require.NotNil(t, mm)
 	defer teardownModem(mm)
 	p := patterns[0]
-	mr, err := g.SendSMS(p.ctx, p.number, p.message)
+	mr, err := g.SendSMS(p.number, p.message)
 	assert.Equal(t, gsm.ErrWrongMode, err)
 	assert.Equal(t, "", mr)
 }
@@ -334,57 +304,46 @@ func TestSendSMSPDU(t *testing.T) {
 		"00110203040506" + string(26): {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
 		"00210203040506" + string(26): {"\r\n", "pad\r\n", "\r\nOK\r\n"},
 	}
-	background := context.Background()
-	cancelled, cancel := context.WithCancel(background)
-	cancel()
-	timeout, cancel := context.WithTimeout(background, 0)
 	patterns := []struct {
-		name string
-		ctx  context.Context
-		tpdu []byte
-		err  error
-		mr   string
+		name    string
+		options []at.CommandOption
+		tpdu    []byte
+		err     error
+		mr      string
 	}{
 		{
 			"ok",
-			background,
+			nil,
 			[]byte{1, 2, 3, 4, 5, 6},
 			nil,
 			"42",
 		},
 		{
 			"error",
-			background,
+			nil,
 			[]byte{1},
 			at.ErrError,
 			"",
 		},
 		{
 			"cruft",
-			background,
+			nil,
 			[]byte{0x11, 2, 3, 4, 5, 6},
 			nil,
 			"43",
 		},
 		{
 			"malformed",
-			background,
+			nil,
 			[]byte{0x21, 2, 3, 4, 5, 6},
 			gsm.ErrMalformedResponse,
 			"",
 		},
 		{
-			"cancelled",
-			cancelled,
-			[]byte{1, 2, 3, 4, 5, 6},
-			context.Canceled,
-			"",
-		},
-		{
 			"timeout",
-			timeout,
+			[]at.CommandOption{at.WithTimeout(0)},
 			[]byte{1, 2, 3, 4, 5, 6},
-			context.DeadlineExceeded,
+			at.ErrDeadlineExceeded,
 			"",
 		},
 	}
@@ -395,13 +354,12 @@ func TestSendSMSPDU(t *testing.T) {
 
 	for _, p := range patterns {
 		f := func(t *testing.T) {
-			mr, err := g.SendSMSPDU(p.ctx, p.tpdu)
+			mr, err := g.SendSMSPDU(p.tpdu, p.options...)
 			assert.Equal(t, p.err, err)
 			assert.Equal(t, p.mr, mr)
 		}
 		t.Run(p.name, f)
 	}
-	cancel()
 
 	// wrong mode
 	g, mm = setupModem(t, cmdSet)
@@ -409,7 +367,7 @@ func TestSendSMSPDU(t *testing.T) {
 	require.NotNil(t, mm)
 	defer teardownModem(mm)
 	p := patterns[0]
-	omr, oerr := g.SendSMSPDU(p.ctx, p.tpdu)
+	omr, oerr := g.SendSMSPDU(p.tpdu)
 	assert.Equal(t, gsm.ErrWrongMode, oerr)
 	assert.Equal(t, "", omr)
 }
@@ -422,8 +380,7 @@ func TestWithSCA(t *testing.T) {
 	defer teardownModem(mm)
 
 	tp := []byte{1, 2, 3, 4, 5, 6}
-	ctx := context.Background()
-	omr, oerr := g.SendSMSPDU(ctx, tp)
+	omr, oerr := g.SendSMSPDU(tp)
 	assert.Equal(t, tpdu.EncodeError("addr", semioctet.ErrInvalidDigit(0x74)), oerr)
 	assert.Equal(t, "", omr)
 }
@@ -483,8 +440,7 @@ func setupModem(t *testing.T, cmdSet map[string][]string, gopts ...gsm.Option) (
 	if debug {
 		modem = trace.New(modem)
 	}
-	gopts = append(gopts, gsm.FromReadWriter(modem))
-	g := gsm.New(gopts...)
+	g := gsm.New(at.New(modem), gopts...)
 	require.NotNil(t, g)
 	return g, mm
 }
