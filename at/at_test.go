@@ -330,7 +330,7 @@ func TestCommand(t *testing.T) {
 			"timeout",
 			[]at.CommandOption{at.WithTimeout(0)},
 			"",
-			nil,
+			func() { mm.readDelay = time.Millisecond },
 			nil,
 			at.ErrDeadlineExceeded,
 		},
@@ -504,7 +504,7 @@ func TestSMSCommand(t *testing.T) {
 			[]at.CommandOption{at.WithTimeout(0)},
 			"SMS2",
 			"info",
-			nil,
+			func() { mm.readDelay = time.Millisecond },
 			nil,
 			at.ErrDeadlineExceeded,
 		},
@@ -757,6 +757,7 @@ type mockModem struct {
 	errOnWrite       bool
 	echo             bool
 	closed           bool
+	readDelay        time.Duration
 	// The buffer emulating characters emitted by the modem.
 	r chan []byte
 }
@@ -766,6 +767,7 @@ func (m *mockModem) Read(p []byte) (n int, err error) {
 	if data == nil {
 		return 0, at.ErrClosed
 	}
+	time.Sleep(m.readDelay)
 	copy(p, data) // assumes p is empty
 	if !ok {
 		return len(data), errors.New("closed with data")
