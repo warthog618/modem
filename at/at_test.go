@@ -65,7 +65,6 @@ func TestWithEscTime(t *testing.T) {
 		// for init
 		string(27) + "\r\n\r\n": {"\r\n"},
 		"ATZ\r\n":               {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
 	}
 	patterns := []struct {
 		name    string

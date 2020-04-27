@@ -98,8 +98,7 @@ func New(modem io.ReadWriter, options ...Option) *AT {
 	}
 	if a.initCmds == nil {
 		a.initCmds = []string{
-			"Z",       // reset to factory defaults (also clears the escape from the rx buffer)
-			"^CURC=0", // disable general indications ^XXXX
+			"Z", // reset to factory defaults (also clears the escape from the rx buffer)
 		}
 	}
 	go lineReader(a.modem, a.iLines)
@@ -155,7 +154,7 @@ func (o CmdsOption) applyInitOption(i *initConfig) {
 
 // WithCmds specifies the set of AT commands issued by Init.
 //
-// The default commands are ATZ and AT^CURC=0.
+// The default commands are ATZ.
 func WithCmds(cmds ...string) CmdsOption {
 	return CmdsOption(cmds)
 }

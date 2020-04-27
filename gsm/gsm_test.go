@@ -71,7 +71,6 @@ func TestInit(t *testing.T) {
 		// for init (AT)
 		string(27) + "\r\n\r\n": {"\r\n"},
 		"ATZ\r\n":               {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
 		// for init (GSM)
 		"AT+CMEE=2\r\n": {"OK\r\n"},
 		"AT+CMGF=1\r\n": {"OK\r\n"},
