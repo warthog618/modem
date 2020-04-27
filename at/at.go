@@ -80,6 +80,16 @@ type Option interface {
 	applyOption(*AT)
 }
 
+// CommandOption defines a behaviouralk option for Command and SMSCommand.
+type CommandOption interface {
+	applyCommandOption(*commandConfig)
+}
+
+// InitOption defines a behaviouralk option for Init.
+type InitOption interface {
+	applyInitOption(*initConfig)
+}
+
 // New creates a new AT modem.
 func New(modem io.ReadWriter, options ...Option) *AT {
 	a := &AT{
@@ -181,50 +191,6 @@ func (o TimeoutOption) applyCommandOption(c *commandConfig) {
 	c.timeout = time.Duration(o)
 }
 
-// Closed returns a channel which will block while the modem is not closed.
-func (a *AT) Closed() <-chan struct{} {
-	return a.closed
-}
-
-// Command issues the command to the modem and returns the result.
-//
-// The command should NOT include the AT prefix, nor <CR><LF> suffix which is
-// automatically added.
-//
-// The return value includes the info (the lines returned by the modem between
-// the command and the status line), or an error if the command did not
-// complete successfully.
-func (a *AT) Command(cmd string, options ...CommandOption) ([]string, error) {
-	cfg := commandConfig{timeout: a.cmdTimeout}
-	for _, option := range options {
-		option.applyCommandOption(&cfg)
-	}
-	done := make(chan response)
-	cmdf := func() {
-		info, err := a.processReq(cmd, cfg.timeout)
-		done <- response{info: info, err: err}
-	}
-	select {
-	case <-a.closed:
-		return nil, ErrClosed
-	case a.cmdCh <- cmdf:
-		rsp := <-done
-		return rsp.info, rsp.err
-	}
-}
-
-func newIndication(prefix string, handler InfoHandler, options ...IndicationOption) Indication {
-	ind := Indication{
-		prefix:  prefix,
-		handler: handler,
-		lines:   1,
-	}
-	for _, option := range options {
-		option.applyIndicationOption(&ind)
-	}
-	return ind
-}
-
 // AddIndication adds a handler for a set of lines beginning with the prefixed
 // line and the following trailing lines.
 func (a *AT) AddIndication(prefix string, handler InfoHandler, options ...IndicationOption) (err error) {
@@ -264,24 +230,56 @@ func (a *AT) CancelIndication(prefix string) {
 	}
 }
 
-type initConfig struct {
-	timeout time.Duration
-	cmds    []string
-	cmdOpts []CommandOption
+// Closed returns a channel which will block while the modem is not closed.
+func (a *AT) Closed() <-chan struct{} {
+	return a.closed
 }
 
-type commandConfig struct {
-	timeout time.Duration
+// Command issues the command to the modem and returns the result.
+//
+// The command should NOT include the AT prefix, nor <CR><LF> suffix which is
+// automatically added.
+//
+// The return value includes the info (the lines returned by the modem between
+// the command and the status line), or an error if the command did not
+// complete successfully.
+func (a *AT) Command(cmd string, options ...CommandOption) ([]string, error) {
+	cfg := commandConfig{timeout: a.cmdTimeout}
+	for _, option := range options {
+		option.applyCommandOption(&cfg)
+	}
+	done := make(chan response)
+	cmdf := func() {
+		info, err := a.processReq(cmd, cfg.timeout)
+		done <- response{info: info, err: err}
+	}
+	select {
+	case <-a.closed:
+		return nil, ErrClosed
+	case a.cmdCh <- cmdf:
+		rsp := <-done
+		return rsp.info, rsp.err
+	}
 }
 
-// InitOption defines a behaviouralk option for Init.
-type InitOption interface {
-	applyInitOption(*initConfig)
-}
-
-// CommandOption defines a behaviouralk option for Command and SMSCommand.
-type CommandOption interface {
-	applyCommandOption(*commandConfig)
+// Escape issues an escape sequence to the modem.
+//
+// It does not wait for any response, but it does inhibit subsequent commands
+// until the escTime has elapsed.
+//
+// The escape sequence is "\x1b\r\n".  Additional characters may be added to
+// the sequence using the b parameter.
+func (a *AT) Escape(b ...byte) {
+	done := make(chan struct{})
+	cmdf := func() {
+		a.escape(b...)
+		close(done)
+	}
+	select {
+	case <-a.closed:
+	case a.cmdCh <- cmdf:
+		<-done
+	}
 }
 
 // Init initialises the modem by escaping any outstanding SMS commands and
@@ -418,6 +416,16 @@ func (a *AT) indLoop(cmds chan func(), in <-chan string, out chan string) {
 	}
 }
 
+// issue an escape command
+//
+// This should only be called from within the cmdLoop.
+func (a *AT) escape(b ...byte) {
+	cmd := append([]byte(string(esc)+"\r\n"), b...)
+	a.modem.Write(cmd)
+	a.escGuard = time.NewTimer(a.escTime)
+}
+
+// perform a request  - issuing the command and awaiting the response.
 func (a *AT) processReq(cmd string, timeout time.Duration) (info []string, err error) {
 	a.waitEscGuard()
 	err = a.writeCommand(cmd)
@@ -460,6 +468,8 @@ func (a *AT) processReq(cmd string, timeout time.Duration) (info []string, err e
 	}
 }
 
+// perform a SMS request  - issuing the command, awaiting the prompt, sending
+// the data and awaiting the response.
 func (a *AT) processSmsReq(cmd string, sms string, timeout time.Duration) (info []string, err error) {
 	a.waitEscGuard()
 	err = a.writeSMSCommand(cmd)
@@ -552,35 +562,6 @@ func (a *AT) processSmsRxLine(lt rxl, line string, sms string) (info *string, do
 		return a.processRxLine(lt, line)
 	}
 	return
-}
-
-// Escape issues an escape sequence to the modem.
-//
-// It does not wait for any response, but it does inhibit subsequent commands
-// until the escTime has elapsed.
-//
-// The escape sequence is "\x1b\r\n".  Additional characters may be added to
-// the sequence using the b parameter.
-func (a *AT) Escape(b ...byte) {
-	done := make(chan struct{})
-	cmdf := func() {
-		a.escape(b...)
-		close(done)
-	}
-	select {
-	case <-a.closed:
-	case a.cmdCh <- cmdf:
-		<-done
-	}
-}
-
-// issue an escape command
-//
-// This should only be called from within the cmdLoop.
-func (a *AT) escape(b ...byte) {
-	cmd := append([]byte(string(esc)+"\r\n"), b...)
-	a.modem.Write(cmd)
-	a.escGuard = time.NewTimer(a.escTime)
 }
 
 // waitEscGuard waits for a write guard to allow a write to the modem.
@@ -730,6 +711,18 @@ type Indication struct {
 	handler InfoHandler
 }
 
+func newIndication(prefix string, handler InfoHandler, options ...IndicationOption) Indication {
+	ind := Indication{
+		prefix:  prefix,
+		handler: handler,
+		lines:   1,
+	}
+	for _, option := range options {
+		option.applyIndicationOption(&ind)
+	}
+	return ind
+}
+
 // IndicationOption alters the behavior of the indication.
 type IndicationOption interface {
 	applyIndicationOption(*Indication)
@@ -813,4 +806,14 @@ func scanLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		return i, data[0:1], nil
 	}
 	return bufio.ScanLines(data, atEOF)
+}
+
+type commandConfig struct {
+	timeout time.Duration
+}
+
+type initConfig struct {
+	timeout time.Duration
+	cmds    []string
+	cmdOpts []CommandOption
 }
