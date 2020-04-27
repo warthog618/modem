@@ -61,7 +61,7 @@ response. e.g.:
 
 ```golang
 modem := at.New(ioWR)
-info, err := modem.Command(ctx, "I")
+info, err := modem.Command("I")
 ```
 
 produces the following interaction with the modem (exact results will differ for your modem):
