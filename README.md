@@ -59,7 +59,7 @@ Supports the following functionality:
 The [at](at) package allows you to issue commands to the modem and receive the
 response. e.g.:
 
-```golang
+```go
 modem := at.New(ioWR)
 info, err := modem.Command("I")
 ```
@@ -80,7 +80,7 @@ OK
 
 and returns this info:
 
-```golang
+```go
 info = []string{
     "Manufacturer: huawei",
     "Model: E173",
