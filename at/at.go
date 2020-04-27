@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -29,21 +28,31 @@ import (
 // Once closed the AT cannot be re-opened - it must be recreated.
 type AT struct {
 	// channel for commands issued to the modem
+	//
+	// Handled by the cmdLoop.
 	cmdCh chan func()
 
 	// channel for changes to inds
+	//
+	// Handled by the indLoop.
 	indCh chan func()
 
 	// closed when modem is closed
 	closed chan struct{}
 
 	// channel for all lines read from the modem
+	//
+	// Handled by the indLoop.
 	iLines chan string
 
 	// channel for lines read from the modem after indications removed
+	//
+	// Handled by the cmdLoop.
 	cLines chan string
 
 	// the underlying modem
+	//
+	// Only accessed from the cmdLoop.
 	modem io.ReadWriter
 
 	// the minimum time between an escape command and the subsequent command
@@ -53,15 +62,16 @@ type AT struct {
 	cmdTimeout time.Duration
 
 	// indications mapped by prefix
-	inds map[string]Indication // only modified in nLoop
+	//
+	// Only accessed from the indLoop
+	inds map[string]Indication
 
 	// commands issued by Init.
 	initCmds []string
 
-	// covers escGuard
-	escGuardMu sync.Mutex
-
 	// if not-nil, the timer that must expire before the subsequent command is issued
+	//
+	// Only accessed from the cmdLoop.
 	escGuard *time.Timer
 }
 
@@ -275,17 +285,18 @@ type CommandOption interface {
 	applyCommandOption(*commandConfig)
 }
 
-// Init initialises the modem by escaping any outstanding SMS commands
-// and resetting the modem to factory defaults.
+// Init initialises the modem by escaping any outstanding SMS commands and
+// resetting the modem to factory defaults.
 //
-// The Init is intended to be called after creation and before any other commands
-// are issued in order to get the modem into a known state.
+// The Init is intended to be called after creation and before any other
+// commands are issued in order to get the modem into a known state.  It can
+// also be used subsequently to return the modem to a known state.
 //
-// The default init commands can be overridden by the cmds parameter.
+// The default init commands can be overridden by the options parameter.
 func (a *AT) Init(options ...InitOption) error {
 	// escape any outstanding SMS operations then CR to flush the command
 	// buffer
-	a.escape([]byte("\r\n")...)
+	a.Escape([]byte("\r\n")...)
 
 	cfg := initConfig{cmds: a.initCmds}
 	for _, option := range options {
@@ -544,25 +555,39 @@ func (a *AT) processSmsRxLine(lt rxl, line string, sms string) (info *string, do
 	return
 }
 
+// Escape issues an escape sequence to the modem.
+//
+// It does not wait for any response, but it does inhibit subsequent commands
+// until the escTime has elapsed.
+//
+// The escape sequence is "\x1b\r\n".  Additional characters may be added to
+// the sequence using the b parameter.
+func (a *AT) Escape(b ...byte) {
+	done := make(chan struct{})
+	cmdf := func() {
+		a.escape(b...)
+		close(done)
+	}
+	select {
+	case <-a.closed:
+	case a.cmdCh <- cmdf:
+		<-done
+	}
+}
+
 // issue an escape command
+//
+// This should only be called from within the cmdLoop.
 func (a *AT) escape(b ...byte) {
 	cmd := append([]byte(string(esc)+"\r\n"), b...)
 	a.modem.Write(cmd)
-	a.startEscGuard()
-}
-
-// startEscGuard starts a write guard that prevents a subsequent write within
-// a short period of time (default 20ms).
-func (a *AT) startEscGuard() {
-	a.escGuardMu.Lock()
 	a.escGuard = time.NewTimer(a.escTime)
-	a.escGuardMu.Unlock()
 }
 
 // waitEscGuard waits for a write guard to allow a write to the modem.
+//
+// This should only be called from within the cmdLoop.
 func (a *AT) waitEscGuard() {
-	a.escGuardMu.Lock()
-	defer a.escGuardMu.Unlock()
 	if a.escGuard == nil {
 		return
 	}
@@ -582,6 +607,8 @@ Loop:
 }
 
 // writeCommand writes a one line command to the modem.
+//
+// This should only be called from within the cmdLoop.
 func (a *AT) writeCommand(cmd string) error {
 	cmdLine := "AT" + cmd + "\r\n"
 	_, err := a.modem.Write([]byte(cmdLine))
@@ -589,6 +616,8 @@ func (a *AT) writeCommand(cmd string) error {
 }
 
 // writeSMSCommand writes a the first line of an SMS command to the modem.
+//
+// This should only be called from within the cmdLoop.
 func (a *AT) writeSMSCommand(cmd string) error {
 	cmdLine := "AT" + cmd + "\r"
 	_, err := a.modem.Write([]byte(cmdLine))
@@ -596,6 +625,8 @@ func (a *AT) writeSMSCommand(cmd string) error {
 }
 
 // writeSMS writes the first line of a two line SMS command to the modem.
+//
+// This should only be called from within the cmdLoop.
 func (a *AT) writeSMS(sms string) error {
 	_, err := a.modem.Write([]byte(sms + string(sub)))
 	return err
