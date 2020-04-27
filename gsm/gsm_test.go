@@ -188,7 +188,12 @@ func TestInit(t *testing.T) {
 	}
 	for _, p := range patterns {
 		f := func(t *testing.T) {
-			mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
+			mm := mockModem{
+				cmdSet:    cmdSet,
+				echo:      false,
+				r:         make(chan []byte, 10),
+				readDelay: time.Millisecond,
+			}
 			defer teardownModem(&mm)
 			a := at.New(&mm)
 			gopts := []gsm.Option{}
@@ -438,7 +443,12 @@ func (m *mockModem) Close() error {
 }
 
 func setupModem(t *testing.T, cmdSet map[string][]string, gopts ...gsm.Option) (*gsm.GSM, *mockModem) {
-	mm := &mockModem{cmdSet: cmdSet, echo: true, r: make(chan []byte, 10), readDelay: time.Millisecond}
+	mm := &mockModem{
+		cmdSet:    cmdSet,
+		echo:      true,
+		r:         make(chan []byte, 10),
+		readDelay: time.Millisecond,
+	}
 	var modem io.ReadWriter = mm
 	if debug {
 		modem = trace.New(modem)
