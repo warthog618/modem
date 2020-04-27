@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -386,9 +387,10 @@ func TestWithSCA(t *testing.T) {
 }
 
 type mockModem struct {
-	cmdSet map[string][]string
-	echo   bool
-	closed bool
+	cmdSet    map[string][]string
+	echo      bool
+	closed    bool
+	readDelay time.Duration
 	// The buffer emulating characters emitted by the modem.
 	r chan []byte
 }
@@ -398,6 +400,7 @@ func (m *mockModem) Read(p []byte) (n int, err error) {
 	if data == nil {
 		return 0, fmt.Errorf("closed")
 	}
+	time.Sleep(m.readDelay)
 	copy(p, data) // assumes p is empty
 	if !ok {
 		return len(data), fmt.Errorf("closed with data")
@@ -435,7 +438,7 @@ func (m *mockModem) Close() error {
 }
 
 func setupModem(t *testing.T, cmdSet map[string][]string, gopts ...gsm.Option) (*gsm.GSM, *mockModem) {
-	mm := &mockModem{cmdSet: cmdSet, echo: true, r: make(chan []byte, 10)}
+	mm := &mockModem{cmdSet: cmdSet, echo: true, r: make(chan []byte, 10), readDelay: time.Millisecond}
 	var modem io.ReadWriter = mm
 	if debug {
 		modem = trace.New(modem)
