@@ -59,7 +59,7 @@ func main() {
 		return
 	}
 	go pollSignalQuality(g, timeout)
-	waitForSMSs(g, timeout)
+	waitForSMSs(g)
 	for {
 		select {
 		case <-time.After(*period):
@@ -119,7 +119,7 @@ func unmarshalTPDU(info []string) (tp tpdu.TPDU, err error) {
 //
 // It will continue to wait until the provided context is done.
 // It reassembles multi-part SMSs into a complete message prior to display.
-func waitForSMSs(g *gsm.GSM, timeout *time.Duration) error {
+func waitForSMSs(g *gsm.GSM) error {
 	c := sms.NewCollector()
 	cmtHandler := func(info []string) {
 		g.Command("+CNMA")
