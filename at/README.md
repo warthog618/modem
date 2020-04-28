@@ -130,11 +130,11 @@ modem.CancelIndication("+CMT:")
 
 A number of the modem methods accept optional parameters.  The following table comprises a list of the available options:
 
-Option | Category | Description
+Option | Method | Description
 ---|---|---
 WithTimeout(time.duration)|New, Init, Command, SMSCommand| Specify the timeout for commands.  A value provided to New becomes the default for the other methods.
 WithCmds([]string)|New, Init| Override the set of commands issued by Init.
-WithEscTime|New|Specifies the minimum period between issuing an escape and a subsequent command.
+WithEscTime(time.Duration)|New|Specifies the minimum period between issuing an escape and a subsequent command.
 WithIndication(prefix, handler)|New| Adds an indication handler at construction time.
 WithTrailingLines(int)|AddIndication, WithIndication| Specifies the number of lines to collect following the indicationline itself.
 WithTrailingLine|AddIndication, WithIndication| Simple case of one trailing line.
