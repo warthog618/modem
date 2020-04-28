@@ -54,7 +54,7 @@ func main() {
 		sendPDU(g, *num, *msg)
 		return
 	}
-	mr, err := g.SendSMS(*num, *msg)
+	mr, err := g.SendShortMessage(*num, *msg)
 	// !!! check CPIN?? on failure to determine root cause??  If ERROR 302
 	log.Printf("%v %v\n", mr, err)
 }
@@ -69,7 +69,7 @@ func sendPDU(g *gsm.GSM, number string, msg string) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		mr, err := g.SendSMSPDU(tp)
+		mr, err := g.SendPDU(tp)
 		if err != nil {
 			// !!! check CPIN?? on failure to determine root cause??  If ERROR 302
 			log.Fatal(err)

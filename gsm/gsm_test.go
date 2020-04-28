@@ -25,6 +25,7 @@ import (
 	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/gsm"
 	"github.com/warthog618/modem/trace"
+	"github.com/warthog618/sms"
 	"github.com/warthog618/sms/encoding/pdumode"
 	"github.com/warthog618/sms/encoding/semioctet"
 	"github.com/warthog618/sms/encoding/tpdu"
@@ -219,24 +220,28 @@ func TestInit(t *testing.T) {
 	}
 }
 
-func TestSendSMS(t *testing.T) {
+func TestSendShortMessage(t *testing.T) {
 	// mocked
 	cmdSet := map[string][]string{
-		"AT+CMGS=\"+123456789\"\r":            {"\n>"},
-		"test message" + string(26):           {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
-		"cruft test message" + string(26):     {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
-		"malformed test message" + string(26): {"\r\n", "pad\r\n", "\r\nOK\r\n"},
+		"AT+CMGS=\"+123456789\"\r":        {"\n>"},
+		"AT+CMGS=23\r":                    {"\n>"},
+		"test message" + string(26):       {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
+		"cruft test message" + string(26): {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
+		"000101099121436587f900000cf4f29c0e6a97e7f3f0b90c" + string(26): {"\r\n", "+CMGS: 44\r\n", "\r\nOK\r\n"},
+		"malformed test message" + string(26):                           {"\r\n", "pad\r\n", "\r\nOK\r\n"},
 	}
 	patterns := []struct {
-		name    string
-		options []at.CommandOption
-		number  string
-		message string
-		err     error
-		mr      string
+		name     string
+		options  []at.CommandOption
+		goptions []gsm.Option
+		number   string
+		message  string
+		err      error
+		mr       string
 	}{
 		{
 			"ok",
+			nil,
 			nil,
 			"+123456789",
 			"test message",
@@ -246,6 +251,7 @@ func TestSendSMS(t *testing.T) {
 		{
 			"error",
 			nil,
+			nil,
 			"+1234567890",
 			"test message",
 			at.ErrError,
@@ -253,6 +259,7 @@ func TestSendSMS(t *testing.T) {
 		},
 		{
 			"cruft",
+			nil,
 			nil,
 			"+123456789",
 			"cruft test message",
@@ -262,6 +269,7 @@ func TestSendSMS(t *testing.T) {
 		{
 			"malformed",
 			nil,
+			nil,
 			"+123456789",
 			"malformed test message",
 			gsm.ErrMalformedResponse,
@@ -270,38 +278,179 @@ func TestSendSMS(t *testing.T) {
 		{
 			"timeout",
 			[]at.CommandOption{at.WithTimeout(0)},
+			nil,
 			"+123456789",
 			"test message",
 			at.ErrDeadlineExceeded,
 			"",
 		},
+		{
+			"pduMode",
+			nil,
+			[]gsm.Option{gsm.WithPDUMode},
+			"+123456789",
+			"test message",
+			nil,
+			"44",
+		},
+		{
+			"overlength",
+			nil,
+			[]gsm.Option{gsm.WithPDUMode},
+			"+123456789",
+			"a very long test message that will not fit within one SMS PDU as it is just too long for one PDU even with GSM encoding, though you can fit more in one PDU than you may initially expect",
+			gsm.ErrOverlength,
+			"",
+		},
+		{
+			"encode error",
+			nil,
+			[]gsm.Option{
+				gsm.WithPDUMode,
+				gsm.WithEncoderOption(sms.WithTemplateOption(tpdu.DCS(0x80))),
+			},
+			"+123456789",
+			"test message",
+			sms.ErrDcsConflict,
+			"",
+		},
+		{
+			"marshal error",
+			nil,
+			[]gsm.Option{gsm.WithPDUMode, gsm.WithEncoderOption(sms.AsUCS2)},
+			"+123456789",
+			"an odd length string!",
+			tpdu.EncodeError("SmsSubmit.ud.sm", tpdu.ErrOddUCS2Length),
+			"",
+		},
 	}
-	g, mm := setupModem(t, cmdSet)
-	require.NotNil(t, g)
-	require.NotNil(t, mm)
-	defer teardownModem(mm)
-
 	for _, p := range patterns {
 		f := func(t *testing.T) {
-			mr, err := g.SendSMS(p.number, p.message, p.options...)
+			g, mm := setupModem(t, cmdSet, p.goptions...)
+			require.NotNil(t, g)
+			require.NotNil(t, mm)
+			defer teardownModem(mm)
+
+			mr, err := g.SendShortMessage(p.number, p.message, p.options...)
 			assert.Equal(t, p.err, err)
 			assert.Equal(t, p.mr, mr)
 		}
 		t.Run(p.name, f)
 	}
-
-	// wrong mode
-	g, mm = setupModem(t, cmdSet, gsm.WithPDUMode)
-	require.NotNil(t, g)
-	require.NotNil(t, mm)
-	defer teardownModem(mm)
-	p := patterns[0]
-	mr, err := g.SendSMS(p.number, p.message)
-	assert.Equal(t, gsm.ErrWrongMode, err)
-	assert.Equal(t, "", mr)
 }
 
-func TestSendSMSPDU(t *testing.T) {
+func TestSendLongMessage(t *testing.T) {
+	// mocked
+	cmdSet := map[string][]string{
+		"AT+CMGS=23\r":  {"\n>"},
+		"AT+CMGS=152\r": {"\n>"},
+		"AT+CMGS=47\r":  {"\n>"},
+		"AT+CMGS=32\r":  {"\r\n", "pad\r\n", "\r\nOK\r\n"},
+		"000101099121436587f900000cf4f29c0e6a97e7f3f0b90c" + string(26): {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
+		"004101099121436587f90000a0050003010201c2207b599e07b1dfee33885e9ed341edf27c1e3e97417474980ebaa7d96c90fb4d0799d374d03d4d47a7dda0b7bb0c9a36a72028b10a0acf41693a283d07a9eb733a88fe7e83d86ff719647ecb416f771904255641657bd90dbaa7e968d071da0495dde33739ed3eb34074f4bb7e4683f2ef3a681c7683cc693aa8fd9697416937e8ed2e83a0" + string(26): {"\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
+		"004102099121436587f90000270500030102028855101d1d7683f2ef3aa81dce83d2ee343d1d66b3f3a0321e5e1ed301" + string(26): {"\r\n", "+CMGS: 44\r\n", "\r\nOK\r\n"},
+	}
+	patterns := []struct {
+		name     string
+		options  []at.CommandOption
+		goptions []gsm.Option
+		number   string
+		message  string
+		err      error
+		mr       []string
+	}{
+		{
+			"text mode",
+			nil,
+			nil,
+			"+123456789",
+			"test message",
+			gsm.ErrWrongMode,
+			nil,
+		},
+		{
+			"error",
+			nil,
+			[]gsm.Option{gsm.WithPDUMode},
+			"+1234567890",
+			"test message",
+			at.ErrError,
+			nil,
+		},
+		{
+			"malformed",
+			nil,
+			[]gsm.Option{gsm.WithPDUMode},
+			"+123456789",
+			"malformed test message",
+			gsm.ErrMalformedResponse,
+			nil,
+		},
+		{
+			"timeout",
+			[]at.CommandOption{at.WithTimeout(0)},
+			[]gsm.Option{gsm.WithPDUMode},
+			"+123456789",
+			"test message",
+			at.ErrDeadlineExceeded,
+			nil,
+		},
+		{
+			"one pdu",
+			nil,
+			[]gsm.Option{gsm.WithPDUMode},
+			"+123456789",
+			"test message",
+			nil,
+			[]string{"42"},
+		},
+		{
+			"two pdu",
+			nil,
+			[]gsm.Option{gsm.WithPDUMode},
+			"+123456789",
+			"a very long test message that will not fit within one SMS PDU as it is just too long for one PDU even with GSM encoding, though you can fit more in one PDU than you may initially expect",
+			nil,
+			[]string{"43", "44"},
+		},
+		{
+			"encode error",
+			nil,
+			[]gsm.Option{
+				gsm.WithPDUMode,
+				gsm.WithEncoderOption(sms.WithTemplateOption(tpdu.DCS(0x80))),
+			},
+			"+123456789",
+			"test message",
+			sms.ErrDcsConflict,
+			nil,
+		},
+		{
+			"marshal error",
+			nil,
+			[]gsm.Option{gsm.WithPDUMode, gsm.WithEncoderOption(sms.AsUCS2)},
+			"+123456789",
+			"an odd length string!",
+			tpdu.EncodeError("SmsSubmit.ud.sm", tpdu.ErrOddUCS2Length),
+			nil,
+		},
+	}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			g, mm := setupModem(t, cmdSet, p.goptions...)
+			require.NotNil(t, g)
+			require.NotNil(t, mm)
+			defer teardownModem(mm)
+
+			mr, err := g.SendLongMessage(p.number, p.message, p.options...)
+			assert.Equal(t, p.err, err)
+			assert.Equal(t, p.mr, mr)
+		}
+		t.Run(p.name, f)
+	}
+}
+
+func TestSendPDU(t *testing.T) {
 	// mocked
 	cmdSet := map[string][]string{
 		"AT+CMGS=6\r":                 {"\n>"},
@@ -359,7 +508,7 @@ func TestSendSMSPDU(t *testing.T) {
 
 	for _, p := range patterns {
 		f := func(t *testing.T) {
-			mr, err := g.SendSMSPDU(p.tpdu, p.options...)
+			mr, err := g.SendPDU(p.tpdu, p.options...)
 			assert.Equal(t, p.err, err)
 			assert.Equal(t, p.mr, mr)
 		}
@@ -372,7 +521,7 @@ func TestSendSMSPDU(t *testing.T) {
 	require.NotNil(t, mm)
 	defer teardownModem(mm)
 	p := patterns[0]
-	omr, oerr := g.SendSMSPDU(p.tpdu)
+	omr, oerr := g.SendPDU(p.tpdu)
 	assert.Equal(t, gsm.ErrWrongMode, oerr)
 	assert.Equal(t, "", omr)
 }
@@ -385,7 +534,7 @@ func TestWithSCA(t *testing.T) {
 	defer teardownModem(mm)
 
 	tp := []byte{1, 2, 3, 4, 5, 6}
-	omr, oerr := g.SendSMSPDU(tp)
+	omr, oerr := g.SendPDU(tp)
 	assert.Equal(t, tpdu.EncodeError("addr", semioctet.ErrInvalidDigit(0x74)), oerr)
 	assert.Equal(t, "", omr)
 }
