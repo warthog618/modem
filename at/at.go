@@ -108,7 +108,8 @@ func New(modem io.ReadWriter, options ...Option) *AT {
 	}
 	if a.initCmds == nil {
 		a.initCmds = []string{
-			"Z", // reset to factory defaults (also clears the escape from the rx buffer)
+			"Z",  // reset to factory defaults (also clears the escape from the rx buffer)
+			"E0", // disable echo
 		}
 	}
 	go lineReader(a.modem, a.iLines)

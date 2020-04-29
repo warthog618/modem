@@ -65,6 +65,7 @@ func TestWithEscTime(t *testing.T) {
 		// for init
 		string(27) + "\r\n\r\n": {"\r\n"},
 		"ATZ\r\n":               {"OK\r\n"},
+		"ATE0\r\n":              {"OK\r\n"},
 	}
 	patterns := []struct {
 		name    string
@@ -104,6 +105,7 @@ func TestWithCmds(t *testing.T) {
 		// for init
 		string(27) + "\r\n\r\n": {"\r\n"},
 		"ATZ\r\n":               {"OK\r\n"},
+		"ATE0\r\n":              {"OK\r\n"},
 		"AT^CURC=0\r\n":         {"OK\r\n"},
 	}
 	patterns := []struct {
@@ -143,6 +145,7 @@ func TestInit(t *testing.T) {
 		// for init
 		string(27) + "\r\n\r\n": {"\r\n"},
 		"ATZ\r\n":               {"OK\r\n"},
+		"ATE0\r\n":              {"OK\r\n"},
 		"AT^CURC=0\r\n":         {"OK\r\n"},
 	}
 	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
@@ -177,7 +180,7 @@ func TestInitFailure(t *testing.T) {
 		// for init
 		string(27) + "\r\n\r\n": {"\r\n"},
 		"ATZ\r\n":               {"ERROR\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
+		"ATE0\r\n":              {"OK\r\n"},
 	}
 	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
@@ -190,6 +193,10 @@ func TestInitFailure(t *testing.T) {
 		t.Error("modem closed")
 	default:
 	}
+
+	// lone E0 should work
+	err = a.Init(at.WithCmds("E0"))
+	assert.Nil(t, err)
 }
 
 func TestCloseInInitTimeout(t *testing.T) {

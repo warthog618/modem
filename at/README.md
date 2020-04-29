@@ -54,8 +54,8 @@ The modem can be initialised to a known state using *Init*:
 err := modem.Init()
 ```
 
-By default the Init issues the **ATZ** command.  The set of commands performed
-can be replaced using the optional *WithCmds* parameter:
+By default the Init issues the **ATZ** and **ATE0** commands.  The set of
+commands performed can be replaced using the optional *WithCmds* parameter:
 
 ```go
 err := modem.Init(at.WithCmds("Z","^CURC=0"))
