@@ -38,7 +38,7 @@ The modem is constructed with *New*:
 modem := at.New(ioWR)
 ```
 
-Some modem behaviour can be controlled using optional paramters:
+Some modem behaviour can be controlled using optional parameters:
 
 ```go
 modem := at.New(ioWR, at.WithTimeout(time.Second))
