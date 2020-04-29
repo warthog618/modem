@@ -8,6 +8,7 @@ package gsm
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/warthog618/modem/at"
@@ -226,6 +227,85 @@ func (g *GSM) SendPDU(tpdu []byte, options ...at.CommandOption) (rsp string, err
 	return
 }
 
+// MessageHandler receives a decoded SMS message from the modem.
+type MessageHandler func(number string, message string)
+
+// ErrorHandler receives asynchronous errors.
+type ErrorHandler func(error)
+
+// StartMessageRx sets up the modem to receive SMS messages and pass them to
+// the message handler.
+//
+// The message may have been concatenated over several SMS PDUs, but if so is
+// reassembled into a complete message before being passed to the message
+// handler.
+//
+// Errors detected while receiving messages are passed to the error handler.
+//
+// Assumes the modem is already in PDU mode.
+func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler) error {
+	c := sms.NewCollector()
+	cmtHandler := func(info []string) {
+		tp, err := unmarshalTPDU(info)
+		if err != nil {
+			eh(err)
+			return
+		}
+		g.Command("+CNMA")
+		tpdus, err := c.Collect(tp)
+		if err != nil {
+			eh(err)
+			return
+		}
+		m, err := sms.Decode(tpdus)
+		if err != nil {
+			eh(err)
+		}
+		if m != nil {
+			mh(tpdus[0].OA.Number(), string(m))
+		}
+	}
+	err := g.AddIndication("+CMT:", cmtHandler, at.WithTrailingLine)
+	if err != nil {
+		return err
+	}
+	// tell the modem to forward SMS-DELIVERs via +CMT indications...
+	_, err = g.Command("+CNMI=1,2,0,0,0")
+	return err
+}
+
+// StopMessageRx ends the reception of messages started by StartMessageRx,
+func (g *GSM) StopMessageRx() {
+	// tell the modem to stop forwarding SMSs to us.
+	g.Command("+CNMI=0,0,0,0,0")
+	// and detach the handler
+	g.CancelIndication("+CMT")
+}
+
+func unmarshalTPDU(info []string) (tp tpdu.TPDU, err error) {
+	if len(info) < 2 {
+		err = ErrUnderlength
+		return
+	}
+	lstr := strings.Split(info[0], ",")
+	var l int
+	l, err = strconv.Atoi(lstr[len(lstr)-1])
+	if err != nil {
+		return
+	}
+	var pdu *pdumode.PDU
+	pdu, err = pdumode.UnmarshalHexString(info[1])
+	if err != nil {
+		return
+	}
+	if int(l) != len(pdu.TPDU) {
+		err = fmt.Errorf("length mismatch - expected %d, got %d", l, len(pdu.TPDU))
+		return
+	}
+	err = tp.UnmarshalBinary(pdu.TPDU)
+	return
+}
+
 var (
 	// ErrMalformedResponse indicates the modem returned a badly formed
 	// response.
@@ -235,13 +315,19 @@ var (
 	// command set, as determined from the GCAP response.
 	ErrNotGSMCapable = errors.New("modem is not GSM capable")
 
-	// ErrNotPINReady indicates the modem SIM card is not ready to perform operations.
+	// ErrNotPINReady indicates the modem SIM card is not ready to perform
+	// operations.
 	ErrNotPINReady = errors.New("modem is not PIN Ready")
 
 	// ErrOverlength indicates the message is too long for a single PDU and
 	// must be split into multiple PDUs.
 	ErrOverlength = errors.New("message too long for one SMS")
 
-	// ErrWrongMode indicates the GSM modem is operating in the wrong mode and so cannot support the command.
+	// ErrUnderlength indicates that two few lines of info were provided to
+	// decode a PDU.
+	ErrUnderlength = errors.New("insufficient info")
+
+	// ErrWrongMode indicates the GSM modem is operating in the wrong mode and
+	// so cannot support the command.
 	ErrWrongMode = errors.New("modem is in the wrong mode")
 )

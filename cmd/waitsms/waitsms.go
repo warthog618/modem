@@ -13,18 +13,10 @@
 package main
 
 import (
-	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"log"
-	"strconv"
-	"strings"
 	"time"
-
-	"github.com/warthog618/sms"
-	"github.com/warthog618/sms/encoding/pdumode"
-	"github.com/warthog618/sms/encoding/tpdu"
 
 	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/gsm"
@@ -58,8 +50,18 @@ func main() {
 		log.Println(err)
 		return
 	}
+
 	go pollSignalQuality(g, timeout)
-	waitForSMSs(g)
+
+	g.StartMessageRx(
+		func(number, message string) {
+			log.Printf("%s: %s\n", number, message)
+		},
+		func(err error) {
+			log.Printf("err: %v\n", err)
+		})
+	defer g.StopMessageRx()
+
 	for {
 		select {
 		case <-time.After(*period):
@@ -73,7 +75,7 @@ func main() {
 
 // pollSignalQuality polls the modem to read signal quality every minute.
 //
-// This is run in parallel to waitForSMSs to demonstrate separate goroutines
+// This is run in parallel to SMS reception to demonstrate separate goroutines
 // interacting with the modem.
 func pollSignalQuality(g *gsm.GSM, timeout *time.Duration) {
 	for {
@@ -89,63 +91,4 @@ func pollSignalQuality(g *gsm.GSM, timeout *time.Duration) {
 			return
 		}
 	}
-}
-
-func unmarshalTPDU(info []string) (tp tpdu.TPDU, err error) {
-	if info == nil {
-		err = errors.New("received nil info")
-		return
-	}
-	lstr := strings.Split(info[0], ",")
-	l, serr := strconv.Atoi(lstr[len(lstr)-1])
-	if serr != nil {
-		err = serr
-		return
-	}
-	pdu, perr := pdumode.UnmarshalHexString(info[1])
-	if perr != nil {
-		err = perr
-		return
-	}
-	if int(l) != len(pdu.TPDU) {
-		err = fmt.Errorf("length mismatch - expected %d, got %d", l, len(pdu.TPDU))
-		return
-	}
-	err = tp.UnmarshalBinary(pdu.TPDU)
-	return
-}
-
-// waitForSMSs adds an indication to the modem and prints any received SMSs.
-//
-// It will continue to wait until the provided context is done.
-// It reassembles multi-part SMSs into a complete message prior to display.
-func waitForSMSs(g *gsm.GSM) error {
-	c := sms.NewCollector()
-	cmtHandler := func(info []string) {
-		g.Command("+CNMA")
-		tp, err := unmarshalTPDU(info)
-		if err != nil {
-			log.Printf("err: %v\n", err)
-			return
-		}
-		tpdus, err := c.Collect(tp)
-		if err != nil {
-			log.Printf("err: %v\n", err)
-			return
-		}
-		m, err := sms.Decode(tpdus)
-		if err != nil {
-			log.Printf("err: %v\n", err)
-		}
-		if m != nil {
-			log.Printf("%s: %s\n", tpdus[0].OA.Number(), m)
-		}
-	}
-	err := g.AddIndication("+CMT:", cmtHandler, at.WithTrailingLine)
-	if err != nil {
-		return err
-	}
-	// tell the modem to forward SMSs to us.
-	_, err = g.Command("+CNMI=1,2,2,1,0")
-	return err
 }
