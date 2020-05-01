@@ -14,8 +14,10 @@
 package gsm_test
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io"
+	"strconv"
 	"testing"
 	"time"
 
@@ -29,6 +31,7 @@ import (
 	"github.com/warthog618/sms/encoding/pdumode"
 	"github.com/warthog618/sms/encoding/semioctet"
 	"github.com/warthog618/sms/encoding/tpdu"
+	"github.com/warthog618/sms/encoding/ucs2"
 )
 
 var debug = false // set to true to enable tracing of the flow to the mockModem.
@@ -525,6 +528,212 @@ func TestSendPDU(t *testing.T) {
 	omr, oerr := g.SendPDU(p.tpdu)
 	assert.Equal(t, gsm.ErrWrongMode, oerr)
 	assert.Equal(t, "", omr)
+}
+
+type Message struct {
+	number  string
+	message string
+}
+
+func TestStartMessageRx(t *testing.T) {
+	cmdSet := map[string][]string{
+		"AT+CNMA\r\n": {"\r\nOK\r\n"},
+	}
+	g, mm := setupModem(t, cmdSet)
+	require.NotNil(t, g)
+	require.NotNil(t, mm)
+	teardownModem(mm)
+
+	msgChan := make(chan Message, 3)
+	errChan := make(chan error, 3)
+	mh := func(number, message string) {
+		msgChan <- Message{number, message}
+	}
+	eh := func(err error) {
+		errChan <- err
+	}
+
+	// wrong mode
+	err := g.StartMessageRx(mh, eh)
+	require.Equal(t, gsm.ErrWrongMode, err)
+
+	g, mm = setupModem(t, cmdSet, gsm.WithPDUMode)
+	require.NotNil(t, g)
+	require.NotNil(t, mm)
+	defer teardownModem(mm)
+
+	// fails CNMA
+	err = g.StartMessageRx(mh, eh)
+	require.Equal(t, at.ErrError, err)
+
+	cmdSet["AT+CNMI=1,2,0,0,0\r\n"] = []string{"\r\nOK\r\n"}
+
+	// pass
+	err = g.StartMessageRx(mh, eh)
+	require.Nil(t, err)
+
+	// alreadt exists
+	err = g.StartMessageRx(mh, eh)
+	require.Equal(t, at.ErrIndicationExists, err)
+
+	// CMT patterns to exercise cmtHandler
+	patterns := []struct {
+		rx  string
+		msg Message
+		err error
+	}{
+		{
+			"+CMT: ,24\r\n00040B911234567890F000000250100173832305C8329BFD06\r\n",
+			Message{number: "+21436587090", message: "Hello"},
+			nil,
+		},
+		{
+			"+CMT: ,2X\r\n00040B911234567JUNK000000250100173832305C8329BFD06\r\n",
+			Message{message: "no message received"},
+			&strconv.NumError{Func: "Atoi", Num: "2X", Err: strconv.ErrSyntax},
+		},
+		{
+			"+CMT: ,27\r\n004400000000101010000000000f050003030206906174181d468701\r\n",
+			Message{message: "no message received"},
+			sms.ErrReassemblyInconsistency,
+		},
+		{
+			"+CMT: ,19\r\n0004000000081010100000000006d83dde01d83d\r\n",
+			Message{message: "no message received"},
+			ucs2.ErrDanglingSurrogate([]byte{0xd8, 0x3d}),
+		},
+	}
+	for _, p := range patterns {
+		mm.r <- []byte(p.rx)
+		select {
+		case msg := <-msgChan:
+			assert.Equal(t, p.msg, msg)
+		case err := <-errChan:
+			assert.Equal(t, p.err, err)
+		case <-time.After(100 * time.Millisecond):
+			t.Errorf("no notification received")
+		}
+	}
+}
+
+func TestStopMessageRx(t *testing.T) {
+	cmdSet := map[string][]string{
+		"AT+CNMI=1,2,0,0,0\r\n": {"\r\nOK\r\n"},
+		"AT+CNMI=0,0,0,0,0\r\n": {"\r\nOK\r\n"},
+		"AT+CNMA\r\n":           {"\r\nOK\r\n"},
+	}
+	g, mm := setupModem(t, cmdSet, gsm.WithPDUMode)
+	mm.echo = false
+	require.NotNil(t, g)
+	require.NotNil(t, mm)
+	defer teardownModem(mm)
+
+	msgChan := make(chan Message, 3)
+	errChan := make(chan error, 3)
+	mh := func(number, message string) {
+		msgChan <- Message{number, message}
+	}
+	eh := func(err error) {
+		errChan <- err
+	}
+	err := g.StartMessageRx(mh, eh)
+	require.Nil(t, err)
+	mm.r <- []byte("+CMT: ,24\r\n00040B911234567890F000000250100173832305C8329BFD06\r\n")
+	select {
+	case <-msgChan:
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("no notification received")
+	}
+
+	// stop
+	g.StopMessageRx()
+
+	// would return a msg
+	mm.r <- []byte("+CMT: ,24\r\n00040B911234567890F000000250100173832305C8329BFD06\r\n")
+	select {
+	case msg := <-msgChan:
+		t.Errorf("msg received: %v", msg)
+	case err := <-errChan:
+		t.Errorf("error received: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// would return an error
+	mm.r <- []byte("+CMT: ,13\r\n00040B911234567890\r\n")
+	select {
+	case msg := <-msgChan:
+		t.Errorf("msg received: %v", msg)
+	case err := <-errChan:
+		t.Errorf("error received: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestUnmarshalTPDU(t *testing.T) {
+	patterns := []struct {
+		name string
+		info []string
+		tpdu tpdu.TPDU
+		err  error
+	}{
+		{
+			"ok",
+			[]string{
+				"+CMT: ,24",
+				"00040B911234567890F000000250100173832305C8329BFD06",
+			},
+			tpdu.TPDU{
+				FirstOctet: 0x04,
+				OA:         tpdu.Address{TOA: 145, Addr: "21436587090"},
+				UD:         []byte("Hello"),
+			},
+			nil,
+		},
+		{
+			"underlength",
+			[]string{
+				"+CMT: ,2X",
+			},
+			tpdu.TPDU{},
+			gsm.ErrUnderlength,
+		},
+		{
+			"bad length",
+			[]string{
+				"+CMT: ,2X",
+				"00040B911234567JUNK000000250100173832305C8329BFD06",
+			},
+			tpdu.TPDU{},
+			&strconv.NumError{Func: "Atoi", Num: "2X", Err: strconv.ErrSyntax},
+		},
+		{
+			"mismatched length",
+			[]string{
+				"+CMT: ,24",
+				"00040B911234567890F00000",
+			},
+			tpdu.TPDU{},
+			fmt.Errorf("length mismatch - expected %d, got %d", 24, 11),
+		},
+		{
+			"not hex",
+			[]string{
+				"+CMT: ,24",
+				"00040B911234567JUNK000000250100173832305C8329BFD06",
+			},
+			tpdu.TPDU{},
+			hex.InvalidByteError(0x4a),
+		},
+	}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			tp, err := gsm.UnmarshalTPDU(p.info)
+			tp.SCTS = tpdu.Timestamp{}
+			assert.Equal(t, p.tpdu, tp)
+			assert.Equal(t, p.err, err)
+		}
+		t.Run(p.name, f)
+	}
 }
 
 func TestWithSCA(t *testing.T) {

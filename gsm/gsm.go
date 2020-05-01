@@ -242,11 +242,14 @@ type ErrorHandler func(error)
 //
 // Errors detected while receiving messages are passed to the error handler.
 //
-// Assumes the modem is already in PDU mode.
+// Requires the modem to be in PDU mode.
 func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler) error {
+	if !g.pduMode {
+		return ErrWrongMode
+	}
 	c := sms.NewCollector()
 	cmtHandler := func(info []string) {
-		tp, err := unmarshalTPDU(info)
+		tp, err := UnmarshalTPDU(info)
 		if err != nil {
 			eh(err)
 			return
@@ -271,6 +274,9 @@ func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler) error {
 	}
 	// tell the modem to forward SMS-DELIVERs via +CMT indications...
 	_, err = g.Command("+CNMI=1,2,0,0,0")
+	if err != nil {
+		g.CancelIndication("+CMT:")
+	}
 	return err
 }
 
@@ -279,10 +285,11 @@ func (g *GSM) StopMessageRx() {
 	// tell the modem to stop forwarding SMSs to us.
 	g.Command("+CNMI=0,0,0,0,0")
 	// and detach the handler
-	g.CancelIndication("+CMT")
+	g.CancelIndication("+CMT:")
 }
 
-func unmarshalTPDU(info []string) (tp tpdu.TPDU, err error) {
+// UnmarshalTPDU converts +CMT info into the corresponding SMS TPDU.
+func UnmarshalTPDU(info []string) (tp tpdu.TPDU, err error) {
 	if len(info) < 2 {
 		err = ErrUnderlength
 		return
