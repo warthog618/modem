@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -23,12 +24,19 @@ import (
 	"github.com/warthog618/modem/trace"
 )
 
+var version = "undefined"
+
 func main() {
 	dev := flag.String("d", "/dev/ttyUSB0", "path to modem device")
 	baud := flag.Int("b", 115200, "baud rate")
 	timeout := flag.Duration("t", 400*time.Millisecond, "command timeout period")
 	verbose := flag.Bool("v", false, "log modem interactions")
+	vsn := flag.Bool("version", false, "report version and exit")
 	flag.Parse()
+	if *vsn {
+		fmt.Printf("%s %s\n", os.Args[0], version)
+		os.Exit(0)
+	}
 	m, err := serial.New(serial.WithPort(*dev), serial.WithBaud(*baud))
 	if err != nil {
 		log.Println(err)

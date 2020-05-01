@@ -10,8 +10,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"log"
+	"os"
 	"time"
 
 	"github.com/warthog618/modem/at"
@@ -20,6 +22,8 @@ import (
 	"github.com/warthog618/modem/trace"
 	"github.com/warthog618/sms"
 )
+
+var version = "undefined"
 
 func main() {
 	dev := flag.String("d", "/dev/ttyUSB0", "path to modem device")
@@ -30,8 +34,12 @@ func main() {
 	verbose := flag.Bool("v", false, "log modem interactions")
 	pdumode := flag.Bool("p", false, "send in PDU mode")
 	hex := flag.Bool("x", false, "hex dump modem responses")
+	vsn := flag.Bool("version", false, "report version and exit")
 	flag.Parse()
-
+	if *vsn {
+		fmt.Printf("%s %s\n", os.Args[0], version)
+		os.Exit(0)
+	}
 	m, err := serial.New(serial.WithPort(*dev), serial.WithBaud(*baud))
 	if err != nil {
 		log.Fatal(err)
