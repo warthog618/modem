@@ -38,13 +38,11 @@ The modem is constructed with *New*:
 modem := at.New(ioWR)
 ```
 
-Some modem behaviour can be controlled using optional parameters:
+Some modem behaviour can be controlled using optional parameters. This example sets the default timeout for AT commands to one second:
 
 ```go
 modem := at.New(ioWR, at.WithTimeout(time.Second))
 ```
-
-This example sets the default timeout for AT commands.
 
 ### Modem Init
 
@@ -55,7 +53,7 @@ err := modem.Init()
 ```
 
 By default the Init issues the **ATZ** and **ATE0** commands.  The set of
-commands performed can be replaced using the optional *WithCmds* parameter:
+commands performed can be replaced using the optional *WithCmds* parameter. This example replaces the **ATE0** with **AT^CURC=0**:
 
 ```go
 err := modem.Init(at.WithCmds("Z","^CURC=0"))
@@ -99,17 +97,15 @@ info = []string{
 
 SMS commands are a special case as they are a two stage process, with the modem
 prompting between stages.  The *SMSCommand* performs the two stage handshake
-with the modem and returns any resulting info:
+with the modem and returns any resulting info.  This example sends an SMS with the modem in text mode:
 
 ```go
 info, err := modem.SMSCommand("+CMGS=\"12345\"", "hello world")
 ```
 
-This example sends an SMS with the modem in text mode.
-
 ### Asynchronous Indications
 
-Handlers can be provided for asynchronous indications using *AddIndication*:
+Handlers can be provided for asynchronous indications using *AddIndication*. This example provides a handler for **+CMT** events:
 
 ```go
 handler := func(info []string) {
@@ -117,8 +113,6 @@ handler := func(info []string) {
 }
 err := modem.AddIndication("+CMT:", handler)
 ```
-
-This example provides a handler for **+CMT** events.
 
 The handler can be removed using *CancelIndication*:
 
