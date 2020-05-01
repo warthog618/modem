@@ -408,7 +408,7 @@ func (a *AT) indLoop(cmds chan func(), in <-chan string, out chan string) {
 						}
 						n[i] = t
 					}
-					ind.handler(n)
+					go ind.handler(n)
 					continue
 				}
 			}
