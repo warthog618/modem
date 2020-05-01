@@ -26,7 +26,7 @@ func main() {
 	baud := flag.Int("b", 115200, "baud rate")
 	num := flag.String("n", "+12345", "number to send to, in international format")
 	msg := flag.String("m", "Zoot Zoot", "the message to send")
-	timeout := flag.Duration("t", 5000*time.Millisecond, "command timeout period")
+	timeout := flag.Duration("t", 5*time.Second, "command timeout period")
 	verbose := flag.Bool("v", false, "log modem interactions")
 	pdumode := flag.Bool("p", false, "send in PDU mode")
 	hex := flag.Bool("x", false, "hex dump modem responses")
