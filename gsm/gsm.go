@@ -33,7 +33,7 @@ type Option interface {
 
 // New creates a new GSM modem.
 func New(a *at.AT, options ...Option) *GSM {
-	g := GSM{AT: a}
+	g := GSM{AT: a, pduMode: true}
 	for _, option := range options {
 		option.applyOption(&g)
 	}
@@ -63,8 +63,13 @@ func (o pduModeOption) applyOption(g *GSM) {
 
 // WithPDUMode specifies that the modem is to be used in PDU mode.
 //
-// The default is text mode.
+// This is the default mode.
 var WithPDUMode = pduModeOption(true)
+
+// WithTextMode specifies that the modem is to be used in text mode.
+//
+// This overrides is the default PDU mode.
+var WithTextMode = pduModeOption(false)
 
 type scaOption pdumode.SMSCAddress
 

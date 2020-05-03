@@ -51,8 +51,8 @@ func main() {
 		mio = trace.New(m)
 	}
 	gopts := []gsm.Option{}
-	if *pdumode {
-		gopts = append(gopts, gsm.WithPDUMode)
+	if !*pdumode {
+		gopts = append(gopts, gsm.WithTextMode)
 	}
 	g := gsm.New(at.New(mio, at.WithTimeout(*timeout)), gopts...)
 	if err = g.Init(); err != nil {

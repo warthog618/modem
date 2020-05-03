@@ -53,7 +53,7 @@ func main() {
 	} else if *verbose {
 		mio = trace.New(m)
 	}
-	g := gsm.New(at.New(mio, at.WithTimeout(*timeout)), gsm.WithPDUMode)
+	g := gsm.New(at.New(mio, at.WithTimeout(*timeout)))
 	err = g.Init()
 	if err != nil {
 		log.Println(err)

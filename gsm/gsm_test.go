@@ -55,6 +55,11 @@ func TestNew(t *testing.T) {
 			[]gsm.Option{gsm.WithPDUMode},
 			true,
 		},
+		{
+			"WithTextMode",
+			[]gsm.Option{gsm.WithTextMode},
+			true,
+		},
 	}
 	for _, p := range patterns {
 		f := func(t *testing.T) {
@@ -87,7 +92,7 @@ func TestInit(t *testing.T) {
 		residual []byte
 		key      string
 		value    []string
-		pduMode  bool
+		textMode bool
 		err      error
 	}{
 		{
@@ -96,7 +101,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"",
 			nil,
-			false,
+			true,
 			nil,
 		},
 		{
@@ -105,7 +110,7 @@ func TestInit(t *testing.T) {
 			[]byte("\r\nOK\r\nOK\r\n"),
 			"",
 			nil,
-			false,
+			true,
 			nil,
 		},
 		{
@@ -114,7 +119,7 @@ func TestInit(t *testing.T) {
 			[]byte("\r\nERROR\r\nERROR\r\n"),
 			"",
 			nil,
-			false,
+			true,
 			nil,
 		},
 		{
@@ -123,7 +128,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"AT+GCAP\r\n",
 			[]string{"cruft\r\n", "+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"},
-			false,
+			true,
 			nil,
 		},
 		{
@@ -132,7 +137,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"AT+CMEE=2\r\n",
 			[]string{"ERROR\r\n"},
-			false,
+			true,
 			at.ErrError,
 		},
 		{
@@ -141,7 +146,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"AT+GCAP\r\n",
 			[]string{"ERROR\r\n"},
-			false,
+			true,
 			at.ErrError,
 		},
 		{
@@ -150,7 +155,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"AT+GCAP\r\n",
 			[]string{"+GCAP: +DS,+ES\r\n", "OK\r\n"},
-			false,
+			true,
 			gsm.ErrNotGSMCapable,
 		},
 		{
@@ -159,7 +164,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"ATZ\r\n",
 			[]string{"ERROR\r\n"},
-			false,
+			true,
 			fmt.Errorf("ATZ returned error: %w", at.ErrError),
 		},
 		{
@@ -177,7 +182,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"",
 			nil,
-			true,
+			false,
 			at.ErrError,
 		},
 		{
@@ -186,7 +191,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"AT+CMGF=0\r\n",
 			[]string{"OK\r\n"},
-			true,
+			false,
 			nil,
 		},
 	}
@@ -201,8 +206,8 @@ func TestInit(t *testing.T) {
 			defer teardownModem(&mm)
 			a := at.New(&mm)
 			gopts := []gsm.Option{}
-			if p.pduMode {
-				gopts = append(gopts, gsm.WithPDUMode)
+			if p.textMode {
+				gopts = append(gopts, gsm.WithTextMode)
 			}
 			g := gsm.New(a, gopts...)
 			require.NotNil(t, g)
@@ -246,7 +251,7 @@ func TestSendShortMessage(t *testing.T) {
 		{
 			"ok",
 			nil,
-			nil,
+			[]gsm.Option{gsm.WithTextMode},
 			"+123456789",
 			"test message",
 			nil,
@@ -255,7 +260,7 @@ func TestSendShortMessage(t *testing.T) {
 		{
 			"error",
 			nil,
-			nil,
+			[]gsm.Option{gsm.WithTextMode},
 			"+1234567890",
 			"test message",
 			at.ErrError,
@@ -264,7 +269,7 @@ func TestSendShortMessage(t *testing.T) {
 		{
 			"cruft",
 			nil,
-			nil,
+			[]gsm.Option{gsm.WithTextMode},
 			"+123456789",
 			"cruft test message",
 			nil,
@@ -273,7 +278,7 @@ func TestSendShortMessage(t *testing.T) {
 		{
 			"malformed",
 			nil,
-			nil,
+			[]gsm.Option{gsm.WithTextMode},
 			"+123456789",
 			"malformed test message",
 			gsm.ErrMalformedResponse,
@@ -300,7 +305,7 @@ func TestSendShortMessage(t *testing.T) {
 		{
 			"overlength",
 			nil,
-			[]gsm.Option{gsm.WithPDUMode},
+			nil,
 			"+123456789",
 			"a very long test message that will not fit within one SMS PDU as it is just too long for one PDU even with GSM encoding, though you can fit more in one PDU than you may initially expect",
 			gsm.ErrOverlength,
@@ -310,7 +315,6 @@ func TestSendShortMessage(t *testing.T) {
 			"encode error",
 			nil,
 			[]gsm.Option{
-				gsm.WithPDUMode,
 				gsm.WithEncoderOption(sms.WithTemplateOption(tpdu.DCS(0x80))),
 			},
 			"+123456789",
@@ -366,7 +370,7 @@ func TestSendLongMessage(t *testing.T) {
 		{
 			"text mode",
 			nil,
-			nil,
+			[]gsm.Option{gsm.WithTextMode},
 			"+123456789",
 			"test message",
 			gsm.ErrWrongMode,
@@ -375,7 +379,7 @@ func TestSendLongMessage(t *testing.T) {
 		{
 			"error",
 			nil,
-			[]gsm.Option{gsm.WithPDUMode},
+			nil,
 			"+1234567890",
 			"test message",
 			at.ErrError,
@@ -384,7 +388,7 @@ func TestSendLongMessage(t *testing.T) {
 		{
 			"malformed",
 			nil,
-			[]gsm.Option{gsm.WithPDUMode},
+			nil,
 			"+123456789",
 			"malformed test message",
 			gsm.ErrMalformedResponse,
@@ -393,7 +397,7 @@ func TestSendLongMessage(t *testing.T) {
 		{
 			"timeout",
 			[]at.CommandOption{at.WithTimeout(0)},
-			[]gsm.Option{gsm.WithPDUMode},
+			nil,
 			"+123456789",
 			"test message",
 			at.ErrDeadlineExceeded,
@@ -402,7 +406,7 @@ func TestSendLongMessage(t *testing.T) {
 		{
 			"one pdu",
 			nil,
-			[]gsm.Option{gsm.WithPDUMode},
+			nil,
 			"+123456789",
 			"test message",
 			nil,
@@ -411,7 +415,7 @@ func TestSendLongMessage(t *testing.T) {
 		{
 			"two pdu",
 			nil,
-			[]gsm.Option{gsm.WithPDUMode},
+			nil,
 			"+123456789",
 			"a very long test message that will not fit within one SMS PDU as it is just too long for one PDU even with GSM encoding, though you can fit more in one PDU than you may initially expect",
 			nil,
@@ -432,7 +436,7 @@ func TestSendLongMessage(t *testing.T) {
 		{
 			"marshal error",
 			nil,
-			[]gsm.Option{gsm.WithPDUMode, gsm.WithEncoderOption(sms.AsUCS2)},
+			[]gsm.Option{gsm.WithEncoderOption(sms.AsUCS2)},
 			"+123456789",
 			"an odd length string!",
 			tpdu.EncodeError("SmsSubmit.ud.sm", tpdu.ErrOddUCS2Length),
@@ -520,7 +524,7 @@ func TestSendPDU(t *testing.T) {
 	}
 
 	// wrong mode
-	g, mm = setupModem(t, cmdSet)
+	g, mm = setupModem(t, cmdSet, gsm.WithTextMode)
 	require.NotNil(t, g)
 	require.NotNil(t, mm)
 	defer teardownModem(mm)
@@ -539,7 +543,7 @@ func TestStartMessageRx(t *testing.T) {
 	cmdSet := map[string][]string{
 		"AT+CNMA\r\n": {"\r\nOK\r\n"},
 	}
-	g, mm := setupModem(t, cmdSet)
+	g, mm := setupModem(t, cmdSet, gsm.WithTextMode)
 	require.NotNil(t, g)
 	require.NotNil(t, mm)
 	teardownModem(mm)
@@ -557,7 +561,7 @@ func TestStartMessageRx(t *testing.T) {
 	err := g.StartMessageRx(mh, eh)
 	require.Equal(t, gsm.ErrWrongMode, err)
 
-	g, mm = setupModem(t, cmdSet, gsm.WithPDUMode)
+	g, mm = setupModem(t, cmdSet)
 	require.NotNil(t, g)
 	require.NotNil(t, mm)
 	defer teardownModem(mm)
@@ -622,7 +626,7 @@ func TestStopMessageRx(t *testing.T) {
 		"AT+CNMI=0,0,0,0,0\r\n": {"\r\nOK\r\n"},
 		"AT+CNMA\r\n":           {"\r\nOK\r\n"},
 	}
-	g, mm := setupModem(t, cmdSet, gsm.WithPDUMode)
+	g, mm := setupModem(t, cmdSet)
 	mm.echo = false
 	require.NotNil(t, g)
 	require.NotNil(t, mm)
