@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/warthog618/modem/at"
 	"github.com/warthog618/modem/info"
@@ -31,6 +32,11 @@ type Option interface {
 	applyOption(*GSM)
 }
 
+// RxOption is a construction option for the GSM.
+type RxOption interface {
+	applyRxOption(*rxConfig)
+}
+
 // New creates a new GSM modem.
 func New(a *at.AT, options ...Option) *GSM {
 	g := GSM{AT: a, pduMode: true}
@@ -38,6 +44,21 @@ func New(a *at.AT, options ...Option) *GSM {
 		option.applyOption(&g)
 	}
 	return &g
+}
+
+type collectorOption struct {
+	Collector
+}
+
+func (o collectorOption) applyRxOption(c *rxConfig) {
+	c.c = Collector(o)
+}
+
+// WithCollector overrides the collector to be used to reassemble long messages.
+//
+// The default is an sms.Collector.
+func WithCollector(c Collector) RxOption {
+	return collectorOption{c}
 }
 
 type encoderOption struct {
@@ -85,6 +106,22 @@ func WithSCA(sca pdumode.SMSCAddress) Option {
 func (o scaOption) applyOption(g *GSM) {
 	g.pduMode = true
 	g.sca = pdumode.SMSCAddress(o)
+}
+
+type timeoutOption time.Duration
+
+func (o timeoutOption) applyRxOption(c *rxConfig) {
+	c.timeout = time.Duration(o)
+}
+
+// WithReassemblyTimeout specifies the maximum time allowed for all segments in
+// a long message to be received.
+//
+// The default is 24 hours.
+//
+// This option is overridden by WithCollector.
+func WithReassemblyTimeout(d time.Duration) RxOption {
+	return timeoutOption(d)
 }
 
 // Init initialises the GSM modem.
@@ -238,6 +275,18 @@ type MessageHandler func(number string, message string)
 // ErrorHandler receives asynchronous errors.
 type ErrorHandler func(error)
 
+// Collector is the interface required to collect and reassemble TPDUs.
+//
+// By default this is implemented by an sms.Collector.
+type Collector interface {
+	Collect(tpdu.TPDU) ([]*tpdu.TPDU, error)
+}
+
+type rxConfig struct {
+	timeout time.Duration
+	c       Collector
+}
+
 // StartMessageRx sets up the modem to receive SMS messages and pass them to
 // the message handler.
 //
@@ -248,11 +297,20 @@ type ErrorHandler func(error)
 // Errors detected while receiving messages are passed to the error handler.
 //
 // Requires the modem to be in PDU mode.
-func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler) error {
+func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler, options ...RxOption) error {
 	if !g.pduMode {
 		return ErrWrongMode
 	}
-	c := sms.NewCollector()
+	cfg := rxConfig{timeout: 24 * time.Hour}
+	for _, option := range options {
+		option.applyRxOption(&cfg)
+	}
+	if cfg.c == nil {
+		rto := func(tpdus []*tpdu.TPDU) {
+			eh(ErrReassemblyTimeout{tpdus})
+		}
+		cfg.c = sms.NewCollector(sms.WithReassemblyTimeout(cfg.timeout, rto))
+	}
 	cmtHandler := func(info []string) {
 		tp, err := UnmarshalTPDU(info)
 		if err != nil {
@@ -260,9 +318,12 @@ func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler) error {
 			return
 		}
 		g.Command("+CNMA")
-		tpdus, err := c.Collect(tp)
+		tpdus, err := cfg.c.Collect(tp)
 		if err != nil {
 			eh(err)
+			return
+		}
+		if tpdus == nil {
 			return
 		}
 		m, err := sms.Decode(tpdus)
@@ -316,6 +377,22 @@ func UnmarshalTPDU(info []string) (tp tpdu.TPDU, err error) {
 	}
 	err = tp.UnmarshalBinary(pdu.TPDU)
 	return
+}
+
+// ErrReassemblyTimeout indicates that one or more segments of a long message
+// are missing, preventing the complete message being reassembled.
+//
+// The missing segments are the nil entries in the array.
+type ErrReassemblyTimeout struct {
+	TPDUs []*tpdu.TPDU
+}
+
+func (e ErrReassemblyTimeout) Error() string {
+	str := "timeout reassembling: "
+	for _, tpdu := range e.TPDUs {
+		str += fmt.Sprintf("%+v", tpdu)
+	}
+	return str
 }
 
 var (

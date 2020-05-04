@@ -335,8 +335,6 @@ func TestSendShortMessage(t *testing.T) {
 	for _, p := range patterns {
 		f := func(t *testing.T) {
 			g, mm := setupModem(t, cmdSet, p.goptions...)
-			require.NotNil(t, g)
-			require.NotNil(t, mm)
 			defer teardownModem(mm)
 
 			mr, err := g.SendShortMessage(p.number, p.message, p.options...)
@@ -446,8 +444,6 @@ func TestSendLongMessage(t *testing.T) {
 	for _, p := range patterns {
 		f := func(t *testing.T) {
 			g, mm := setupModem(t, cmdSet, p.goptions...)
-			require.NotNil(t, g)
-			require.NotNil(t, mm)
 			defer teardownModem(mm)
 
 			mr, err := g.SendLongMessage(p.number, p.message, p.options...)
@@ -510,8 +506,6 @@ func TestSendPDU(t *testing.T) {
 		},
 	}
 	g, mm := setupModem(t, cmdSet, gsm.WithPDUMode)
-	require.NotNil(t, g)
-	require.NotNil(t, mm)
 	defer teardownModem(mm)
 
 	for _, p := range patterns {
@@ -525,8 +519,6 @@ func TestSendPDU(t *testing.T) {
 
 	// wrong mode
 	g, mm = setupModem(t, cmdSet, gsm.WithTextMode)
-	require.NotNil(t, g)
-	require.NotNil(t, mm)
 	defer teardownModem(mm)
 	p := patterns[0]
 	omr, oerr := g.SendPDU(p.tpdu)
@@ -544,8 +536,6 @@ func TestStartMessageRx(t *testing.T) {
 		"AT+CNMA\r\n": {"\r\nOK\r\n"},
 	}
 	g, mm := setupModem(t, cmdSet, gsm.WithTextMode)
-	require.NotNil(t, g)
-	require.NotNil(t, mm)
 	teardownModem(mm)
 
 	msgChan := make(chan Message, 3)
@@ -562,8 +552,6 @@ func TestStartMessageRx(t *testing.T) {
 	require.Equal(t, gsm.ErrWrongMode, err)
 
 	g, mm = setupModem(t, cmdSet)
-	require.NotNil(t, g)
-	require.NotNil(t, mm)
 	defer teardownModem(mm)
 
 	// fails CNMA
@@ -576,7 +564,7 @@ func TestStartMessageRx(t *testing.T) {
 	err = g.StartMessageRx(mh, eh)
 	require.Nil(t, err)
 
-	// alreadt exists
+	// already exists
 	err = g.StartMessageRx(mh, eh)
 	require.Equal(t, at.ErrIndicationExists, err)
 
@@ -620,6 +608,89 @@ func TestStartMessageRx(t *testing.T) {
 	}
 }
 
+func TestStartMessageRxOptions(t *testing.T) {
+	cmdSet := map[string][]string{
+		"AT+CNMI=1,2,0,0,0\r\n": {"\r\nOK\r\n"},
+		"AT+CNMA\r\n":           {"\r\nOK\r\n"},
+	}
+
+	msgChan := make(chan Message, 3)
+	errChan := make(chan error, 3)
+	mh := func(number, message string) {
+		msgChan <- Message{number, message}
+	}
+	eh := func(err error) {
+		errChan <- err
+	}
+
+	mc := mockCollector{
+		errChan: errChan,
+		err:     errors.New("mock collector expiry"),
+	}
+	sfs := tpdu.TPDU{
+		FirstOctet: tpdu.FoUDHI,
+		OA:         tpdu.Address{Addr: "1234", TOA: 0x91},
+		SCTS: tpdu.Timestamp{
+			Time: time.Date(2017, time.August, 31, 11, 21, 54, 0, time.FixedZone("any", 8*3600)),
+		},
+		UDH: tpdu.UserDataHeader{
+			tpdu.InformationElement{ID: 0, Data: []byte{2, 2, 1}},
+		},
+		UD: []byte("a short first segment"),
+	}
+	sfsb, _ := sfs.MarshalBinary()
+	sfsh := hex.EncodeToString(sfsb)
+	sfsi := fmt.Sprintf("+CMT: ,%d\r\n00%s\r\n", len(sfsh)/2, sfsh)
+	patterns := []struct {
+		name    string
+		options []gsm.RxOption
+		err     error
+		expire  bool
+	}{
+		{
+			"default",
+			nil,
+			nil,
+			false,
+		},
+		{
+			"timeout",
+			[]gsm.RxOption{gsm.WithReassemblyTimeout(time.Microsecond)},
+			gsm.ErrReassemblyTimeout{TPDUs: []*tpdu.TPDU{&sfs, nil}},
+			true,
+		},
+		{
+			"collector",
+			[]gsm.RxOption{gsm.WithCollector(mc)},
+			mc.err,
+			true,
+		},
+	}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			g, mm := setupModem(t, cmdSet)
+			defer teardownModem(mm)
+			err := g.StartMessageRx(mh, eh, p.options...)
+			require.Nil(t, err)
+			mm.r <- []byte(sfsi)
+			select {
+			case msg := <-msgChan:
+				t.Errorf("received message: %s", msg)
+			case err := <-errChan:
+				require.IsType(t, p.err, err)
+				if _, ok := err.(gsm.ErrReassemblyTimeout); !ok {
+					assert.Equal(t, p.err, err)
+				} else {
+					assert.Equal(t, p.err.Error(), err.Error())
+				}
+			case <-time.After(100 * time.Millisecond):
+				assert.False(t, p.expire)
+			}
+		}
+		t.Run(p.name, f)
+	}
+}
+
 func TestStopMessageRx(t *testing.T) {
 	cmdSet := map[string][]string{
 		"AT+CNMI=1,2,0,0,0\r\n": {"\r\nOK\r\n"},
@@ -628,8 +699,6 @@ func TestStopMessageRx(t *testing.T) {
 	}
 	g, mm := setupModem(t, cmdSet)
 	mm.echo = false
-	require.NotNil(t, g)
-	require.NotNil(t, mm)
 	defer teardownModem(mm)
 
 	msgChan := make(chan Message, 3)
@@ -762,12 +831,12 @@ type mockModem struct {
 	r chan []byte
 }
 
-func (m *mockModem) Read(p []byte) (n int, err error) {
-	data, ok := <-m.r
+func (mm *mockModem) Read(p []byte) (n int, err error) {
+	data, ok := <-mm.r
 	if data == nil {
-		return 0, fmt.Errorf("closed")
+		return 0, at.ErrClosed
 	}
-	time.Sleep(m.readDelay)
+	time.Sleep(mm.readDelay)
 	copy(p, data) // assumes p is empty
 	if !ok {
 		return len(data), fmt.Errorf("closed with data")
@@ -775,31 +844,31 @@ func (m *mockModem) Read(p []byte) (n int, err error) {
 	return len(data), nil
 }
 
-func (m *mockModem) Write(p []byte) (n int, err error) {
-	if m.closed {
-		return 0, errors.New("closed")
+func (mm *mockModem) Write(p []byte) (n int, err error) {
+	if mm.closed {
+		return 0, at.ErrClosed
 	}
-	if m.echo {
-		m.r <- p
+	if mm.echo {
+		mm.r <- p
 	}
-	v := m.cmdSet[string(p)]
+	v := mm.cmdSet[string(p)]
 	if len(v) == 0 {
-		m.r <- []byte("\r\nERROR\r\n")
+		mm.r <- []byte("\r\nERROR\r\n")
 	} else {
 		for _, l := range v {
 			if len(l) == 0 {
 				continue
 			}
-			m.r <- []byte(l)
+			mm.r <- []byte(l)
 		}
 	}
 	return len(p), nil
 }
 
-func (m *mockModem) Close() error {
-	if m.closed == false {
-		m.closed = true
-		close(m.r)
+func (mm *mockModem) Close() error {
+	if mm.closed == false {
+		mm.closed = true
+		close(mm.r)
 	}
 	return nil
 }
@@ -820,6 +889,16 @@ func setupModem(t *testing.T, cmdSet map[string][]string, gopts ...gsm.Option) (
 	return g, mm
 }
 
-func teardownModem(m *mockModem) {
-	m.Close()
+func teardownModem(mm *mockModem) {
+	mm.Close()
+}
+
+type mockCollector struct {
+	errChan chan<- error
+	err     error
+}
+
+func (c mockCollector) Collect(t tpdu.TPDU) ([]*tpdu.TPDU, error) {
+	c.errChan <- c.err
+	return nil, nil
 }
