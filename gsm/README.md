@@ -102,6 +102,6 @@ Option | Method | Description
 *WithCollector(Collector)*|StartMessageRx| Provide a custom collector to reassemble multi-part SMSs.
 *WithEncoderOption(sms.EncoderOption)*|New| Specify options for encoding outgoing messages.
 *WithPDUMode*|New|Configure the modem into PDU mode (default).
-*WithReassemblyTimeout(time.Duration)*|StartMessageRx| Overrides the time allowed to wait for all the parts of a multi-part message to be received and reassembled.  The default is 24 hours.  THis option is ignored if *WithCollector* is also applied.
+*WithReassemblyTimeout(time.Duration)*|StartMessageRx| Overrides the time allowed to wait for all the parts of a multi-part message to be received and reassembled.  The default is 24 hours.  This option is ignored if *WithCollector* is also applied.
 *WithSCA(pdumode.SMSCAddress)*|New| Override the SCA when sending messages.
-*WithTextMode*|New|Configure the modem into text mode.  This is only required to send short messages, and conflicts with sending long messages and receiving messages.
+*WithTextMode*|New|Configure the modem into text mode.  This is only required to send short messages in text mode, and conflicts with sending long messages or PDUs, as well as receiving messages.
