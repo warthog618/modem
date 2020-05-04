@@ -24,9 +24,9 @@ calls.
 Handlers for asynchronous indications from the modem, such as received SMSs,
 can be registered with the driver.
 
-The [gsm](gsm) package adds higher level SendSMS and SendSMSPDU methods to the
-AT driver, that allows for sending SMSs without any knowledge of the underlying
-AT commands.
+The [gsm](gsm) package wraps the AT driver to add higher level functions to
+send and receive SMS messages, including long messages split into multiple
+parts, without any knowledge of the underlying AT commands.
 
 The [info](info) package provides utility functions to manipulate the info
 returned in the responses from the modem.
