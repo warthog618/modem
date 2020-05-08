@@ -81,7 +81,7 @@ mr, err := modem.SendPDU(tpdu)
 A handler can be provided for received SMS messages using *StartMessageRx*:
 
 ```go
-handler := func(number,message string) {
+handler := func(msg gsm.Message) {
     // handle message here
 }
 err := modem.StartMessageRx(handler)

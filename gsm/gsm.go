@@ -269,8 +269,20 @@ func (g *GSM) SendPDU(tpdu []byte, options ...at.CommandOption) (rsp string, err
 	return
 }
 
+// Message encapsulates the details of a received message.
+//
+// The message is composed of one or more SMS-DELIVER TPDUs.
+//
+// Commonly required fields are extracted for easy access.
+type Message struct {
+	Number  string
+	Message string
+	SCTS    tpdu.Timestamp
+	TPDUs   []*tpdu.TPDU
+}
+
 // MessageHandler receives a decoded SMS message from the modem.
-type MessageHandler func(number string, message string)
+type MessageHandler func(Message)
 
 // ErrorHandler receives asynchronous errors.
 type ErrorHandler func(error)
@@ -331,7 +343,11 @@ func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler, options ...RxOp
 			eh(err)
 		}
 		if m != nil {
-			mh(tpdus[0].OA.Number(), string(m))
+			mh(Message{
+				tpdus[0].OA.Number(),
+				string(m),
+				tpdus[0].SCTS,
+				tpdus})
 		}
 	}
 	err := g.AddIndication("+CMT:", cmtHandler, at.WithTrailingLine)

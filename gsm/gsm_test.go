@@ -526,11 +526,6 @@ func TestSendPDU(t *testing.T) {
 	assert.Equal(t, "", omr)
 }
 
-type Message struct {
-	number  string
-	message string
-}
-
 func TestStartMessageRx(t *testing.T) {
 	cmdSet := map[string][]string{
 		"AT+CNMA\r\n": {"\r\nOK\r\n"},
@@ -538,10 +533,10 @@ func TestStartMessageRx(t *testing.T) {
 	g, mm := setupModem(t, cmdSet, gsm.WithTextMode)
 	teardownModem(mm)
 
-	msgChan := make(chan Message, 3)
+	msgChan := make(chan gsm.Message, 3)
 	errChan := make(chan error, 3)
-	mh := func(number, message string) {
-		msgChan <- Message{number, message}
+	mh := func(msg gsm.Message) {
+		msgChan <- msg
 	}
 	eh := func(err error) {
 		errChan <- err
@@ -571,27 +566,32 @@ func TestStartMessageRx(t *testing.T) {
 	// CMT patterns to exercise cmtHandler
 	patterns := []struct {
 		rx  string
-		msg Message
+		msg gsm.Message
 		err error
 	}{
 		{
 			"+CMT: ,24\r\n00040B911234567890F000000250100173832305C8329BFD06\r\n",
-			Message{number: "+21436587090", message: "Hello"},
+			gsm.Message{
+				Number:  "+21436587090",
+				Message: "Hello",
+				SCTS: tpdu.Timestamp{
+					Time: time.Date(2020, time.May, 1, 10, 37, 38, 0, time.FixedZone("any", 8*3600))},
+			},
 			nil,
 		},
 		{
 			"+CMT: ,2X\r\n00040B911234567JUNK000000250100173832305C8329BFD06\r\n",
-			Message{message: "no message received"},
+			gsm.Message{Message: "no message received"},
 			&strconv.NumError{Func: "Atoi", Num: "2X", Err: strconv.ErrSyntax},
 		},
 		{
 			"+CMT: ,27\r\n004400000000101010000000000f050003030206906174181d468701\r\n",
-			Message{message: "no message received"},
+			gsm.Message{Message: "no message received"},
 			sms.ErrReassemblyInconsistency,
 		},
 		{
 			"+CMT: ,19\r\n0004000000081010100000000006d83dde01d83d\r\n",
-			Message{message: "no message received"},
+			gsm.Message{Message: "no message received"},
 			ucs2.ErrDanglingSurrogate([]byte{0xd8, 0x3d}),
 		},
 	}
@@ -599,7 +599,10 @@ func TestStartMessageRx(t *testing.T) {
 		mm.r <- []byte(p.rx)
 		select {
 		case msg := <-msgChan:
-			assert.Equal(t, p.msg, msg)
+			assert.Equal(t, p.msg.Number, msg.Number)
+			assert.Equal(t, p.msg.Message, msg.Message)
+			assert.Equal(t, p.msg.SCTS.Unix(), msg.SCTS.Unix())
+			assert.Equal(t, p.msg.SCTS.Unix(), msg.SCTS.Unix())
 		case err := <-errChan:
 			assert.Equal(t, p.err, err)
 		case <-time.After(100 * time.Millisecond):
@@ -614,10 +617,10 @@ func TestStartMessageRxOptions(t *testing.T) {
 		"AT+CNMA\r\n":           {"\r\nOK\r\n"},
 	}
 
-	msgChan := make(chan Message, 3)
+	msgChan := make(chan gsm.Message, 3)
 	errChan := make(chan error, 3)
-	mh := func(number, message string) {
-		msgChan <- Message{number, message}
+	mh := func(msg gsm.Message) {
+		msgChan <- msg
 	}
 	eh := func(err error) {
 		errChan <- err
@@ -675,7 +678,7 @@ func TestStartMessageRxOptions(t *testing.T) {
 			mm.r <- []byte(sfsi)
 			select {
 			case msg := <-msgChan:
-				t.Errorf("received message: %s", msg)
+				t.Errorf("received message: %v", msg)
 			case err := <-errChan:
 				require.IsType(t, p.err, err)
 				if _, ok := err.(gsm.ErrReassemblyTimeout); !ok {
@@ -701,10 +704,10 @@ func TestStopMessageRx(t *testing.T) {
 	mm.echo = false
 	defer teardownModem(mm)
 
-	msgChan := make(chan Message, 3)
+	msgChan := make(chan gsm.Message, 3)
 	errChan := make(chan error, 3)
-	mh := func(number, message string) {
-		msgChan <- Message{number, message}
+	mh := func(msg gsm.Message) {
+		msgChan <- msg
 	}
 	eh := func(err error) {
 		errChan <- err
