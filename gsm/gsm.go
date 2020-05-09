@@ -326,13 +326,13 @@ func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler, options ...RxOp
 	cmtHandler := func(info []string) {
 		tp, err := UnmarshalTPDU(info)
 		if err != nil {
-			eh(err)
+			eh(ErrUnmarshal{info, err})
 			return
 		}
 		g.Command("+CNMA")
 		tpdus, err := cfg.c.Collect(tp)
 		if err != nil {
-			eh(err)
+			eh(ErrCollect{tp, err})
 			return
 		}
 		if tpdus == nil {
@@ -340,14 +340,15 @@ func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler, options ...RxOp
 		}
 		m, err := sms.Decode(tpdus)
 		if err != nil {
-			eh(err)
+			eh(ErrDecode{tpdus, err})
 		}
 		if m != nil {
 			mh(Message{
-				tpdus[0].OA.Number(),
-				string(m),
-				tpdus[0].SCTS,
-				tpdus})
+				Number:  tpdus[0].OA.Number(),
+				Message: string(m),
+				SCTS:    tpdus[0].SCTS,
+				TPDUs:   tpdus,
+			})
 		}
 	}
 	err := g.AddIndication("+CMT:", cmtHandler, at.WithTrailingLine)
@@ -395,6 +396,32 @@ func UnmarshalTPDU(info []string) (tp tpdu.TPDU, err error) {
 	return
 }
 
+// ErrCollect indicates that an error occured that prevented the TPDU from
+// being collected.
+type ErrCollect struct {
+	TPDU tpdu.TPDU
+	Err  error
+}
+
+func (e ErrCollect) Error() string {
+	return fmt.Sprintf("error '%s' collecting TPDU: %+v", e.Err, e.TPDU)
+}
+
+// ErrDecode indicates that an error occured that prevented the TPDUs from
+// being cdecoded.
+type ErrDecode struct {
+	TPDUs []*tpdu.TPDU
+	Err   error
+}
+
+func (e ErrDecode) Error() string {
+	str := fmt.Sprintf("error '%s' decoding: ", e.Err)
+	for _, tpdu := range e.TPDUs {
+		str += fmt.Sprintf("%+v", tpdu)
+	}
+	return str
+}
+
 // ErrReassemblyTimeout indicates that one or more segments of a long message
 // are missing, preventing the complete message being reassembled.
 //
@@ -407,6 +434,21 @@ func (e ErrReassemblyTimeout) Error() string {
 	str := "timeout reassembling: "
 	for _, tpdu := range e.TPDUs {
 		str += fmt.Sprintf("%+v", tpdu)
+	}
+	return str
+}
+
+// ErrUnmarshal indicates an error occured while trying to unmarshal the TPDU
+// received from the modem.
+type ErrUnmarshal struct {
+	Info []string
+	Err  error
+}
+
+func (e ErrUnmarshal) Error() string {
+	str := fmt.Sprintf("error '%s' unmarshalling: ", e.Err)
+	for _, i := range e.Info {
+		str += fmt.Sprintf("%s\n", i)
 	}
 	return str
 }

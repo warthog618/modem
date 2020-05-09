@@ -582,17 +582,45 @@ func TestStartMessageRx(t *testing.T) {
 		{
 			"+CMT: ,2X\r\n00040B911234567JUNK000000250100173832305C8329BFD06\r\n",
 			gsm.Message{Message: "no message received"},
-			&strconv.NumError{Func: "Atoi", Num: "2X", Err: strconv.ErrSyntax},
+			gsm.ErrUnmarshal{
+				Info: []string{
+					"+CMT: ,2X",
+					"00040B911234567JUNK000000250100173832305C8329BFD06",
+				},
+				Err: &strconv.NumError{Func: "Atoi", Num: "2X", Err: strconv.ErrSyntax},
+			},
 		},
 		{
 			"+CMT: ,27\r\n004400000000101010000000000f050003030206906174181d468701\r\n",
 			gsm.Message{Message: "no message received"},
-			sms.ErrReassemblyInconsistency,
+			gsm.ErrCollect{
+				TPDU: tpdu.TPDU{
+					FirstOctet: 0x44,
+					SCTS: tpdu.Timestamp{
+						Time: time.Date(2001, time.January, 1, 0, 0, 0, 0, time.UTC)},
+					UDH: tpdu.UserDataHeader{
+						tpdu.InformationElement{ID: 0, Data: []byte{3, 2, 6}},
+					},
+					UD: []byte("Hahahaha"),
+				},
+				Err: sms.ErrReassemblyInconsistency,
+			},
 		},
 		{
 			"+CMT: ,19\r\n0004000000081010100000000006d83dde01d83d\r\n",
 			gsm.Message{Message: "no message received"},
-			ucs2.ErrDanglingSurrogate([]byte{0xd8, 0x3d}),
+			gsm.ErrDecode{
+				TPDUs: []*tpdu.TPDU{
+					{
+						FirstOctet: 4,
+						DCS:        0x08,
+						SCTS: tpdu.Timestamp{
+							Time: time.Date(2001, time.January, 1, 0, 0, 0, 0, time.FixedZone("any", 0))},
+						UD: []byte{0xd8, 0x3d, 0xde, 0x01, 0xd8, 0x3d},
+					},
+				},
+				Err: ucs2.ErrDanglingSurrogate([]byte{0xd8, 0x3d}),
+			},
 		},
 	}
 	for _, p := range patterns {
@@ -602,9 +630,21 @@ func TestStartMessageRx(t *testing.T) {
 			assert.Equal(t, p.msg.Number, msg.Number)
 			assert.Equal(t, p.msg.Message, msg.Message)
 			assert.Equal(t, p.msg.SCTS.Unix(), msg.SCTS.Unix())
-			assert.Equal(t, p.msg.SCTS.Unix(), msg.SCTS.Unix())
 		case err := <-errChan:
-			assert.Equal(t, p.err, err)
+			require.IsType(t, p.err, err)
+			switch v := err.(type) {
+			case gsm.ErrCollect:
+				xerr := p.err.(gsm.ErrCollect)
+				assert.Equal(t, xerr.TPDU, v.TPDU)
+				assert.Equal(t, xerr.Err, v.Err)
+			case gsm.ErrDecode:
+				xerr := p.err.(gsm.ErrDecode)
+				assert.Equal(t, xerr.Err, v.Err)
+			case gsm.ErrUnmarshal:
+				xerr := p.err.(gsm.ErrUnmarshal)
+				assert.Equal(t, xerr.Info, v.Info)
+				assert.Equal(t, xerr.Err, v.Err)
+			}
 		case <-time.After(100 * time.Millisecond):
 			t.Errorf("no notification received")
 		}
@@ -823,6 +863,83 @@ func TestWithSCA(t *testing.T) {
 	omr, oerr := g.SendPDU(tp)
 	assert.Equal(t, tpdu.EncodeError("addr", semioctet.ErrInvalidDigit(0x74)), oerr)
 	assert.Equal(t, "", omr)
+}
+
+func TestErrors(t *testing.T) {
+	patterns := []struct {
+		name   string
+		err    error
+		errStr string
+	}{
+		{
+			"collect",
+			gsm.ErrCollect{
+				TPDU: tpdu.TPDU{
+					FirstOctet: 0x44,
+					DCS:        0,
+					SCTS: tpdu.Timestamp{
+						Time: time.Date(2001, time.January, 1, 0, 0, 0, 0, time.UTC)},
+					UDH: tpdu.UserDataHeader{
+						tpdu.InformationElement{ID: 0, Data: []byte{3, 2, 6}},
+					},
+					UD: []byte("Hahahaha"),
+				},
+				Err: errors.New("twisted"),
+			},
+			"error 'twisted' collecting TPDU: {Direction:0 FirstOctet:68 OA:{TOA:0 Addr:} FCS:0 MR:0 CT:0 MN:0 DA:{TOA:0 Addr:} RA:{TOA:0 Addr:} PI:0 SCTS:2001-01-01 00:00:00 +0000 DT:0001-01-01 00:00:00 +0000 ST:0 PID:0 DCS:0x00 7bit VP:{Format:Not Present Time:0001-01-01 00:00:00 +0000 Duration:0s EFI:0} UDH:[{ID:0 Data:[3 2 6]}] UD:[72 97 104 97 104 97 104 97]}",
+		},
+		{
+			"decode",
+			gsm.ErrDecode{
+				TPDUs: []*tpdu.TPDU{
+					{
+
+						FirstOctet: 4,
+						DCS:        0x08,
+						SCTS: tpdu.Timestamp{
+							Time: time.Date(2001, time.January, 1, 0, 0, 0, 0, time.FixedZone("any", 0))},
+						UD: []byte{0xd8, 0x3d, 0xde, 0x01, 0xd8, 0x3d},
+					},
+				},
+				Err: errors.New("dangling surrogate"),
+			},
+			"error 'dangling surrogate' decoding: &{Direction:0 FirstOctet:4 OA:{TOA:0 Addr:} FCS:0 MR:0 CT:0 MN:0 DA:{TOA:0 Addr:} RA:{TOA:0 Addr:} PI:0 SCTS:2001-01-01 00:00:00 +0000 DT:0001-01-01 00:00:00 +0000 ST:0 PID:0 DCS:0x08 UCS-2 VP:{Format:Not Present Time:0001-01-01 00:00:00 +0000 Duration:0s EFI:0} UDH:[] UD:[216 61 222 1 216 61]}",
+		},
+		{
+
+			"reassemblyTimeout",
+			gsm.ErrReassemblyTimeout{
+				TPDUs: []*tpdu.TPDU{
+					{
+
+						FirstOctet: 4,
+						DCS:        0x08,
+						SCTS: tpdu.Timestamp{
+							Time: time.Date(2001, time.January, 1, 0, 0, 0, 0, time.FixedZone("any", 0))},
+						UD: []byte{0xd8, 0x3d, 0xde, 0x01, 0xd8, 0x3d},
+					},
+				},
+			},
+			"timeout reassembling: &{Direction:0 FirstOctet:4 OA:{TOA:0 Addr:} FCS:0 MR:0 CT:0 MN:0 DA:{TOA:0 Addr:} RA:{TOA:0 Addr:} PI:0 SCTS:2001-01-01 00:00:00 +0000 DT:0001-01-01 00:00:00 +0000 ST:0 PID:0 DCS:0x08 UCS-2 VP:{Format:Not Present Time:0001-01-01 00:00:00 +0000 Duration:0s EFI:0} UDH:[] UD:[216 61 222 1 216 61]}",
+		},
+		{
+			"unmarshal",
+			gsm.ErrUnmarshal{
+				Info: []string{
+					"+CMT: ,2X",
+					"00040B911234567JUNK000000250100173832305C8329BFD06",
+				},
+				Err: errors.New("bent"),
+			},
+			"error 'bent' unmarshalling: +CMT: ,2X\n00040B911234567JUNK000000250100173832305C8329BFD06\n",
+		},
+	}
+	for _, p := range patterns {
+		f := func(t *testing.T) {
+			assert.Equal(t, p.errStr, p.err.Error())
+		}
+		t.Run(p.name, f)
+	}
 }
 
 type mockModem struct {
