@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/warthog618/modem/at"
-	"github.com/warthog618/modem/gsm"
 	"github.com/warthog618/modem/info"
 	"github.com/warthog618/modem/serial"
 	"github.com/warthog618/modem/trace"
@@ -48,18 +47,18 @@ func main() {
 	if *verbose {
 		mio = trace.New(m)
 	}
-	g := gsm.New(at.New(mio, at.WithTimeout(*timeout)))
-	if err = g.Init(); err != nil {
+	a := at.New(mio, at.WithTimeout(*timeout))
+	if err = a.Init(); err != nil {
 		log.Fatal(err)
 	}
 	rspChan := make(chan string)
 	handler := func(info []string) {
 		rspChan <- info[0]
 	}
-	g.AddIndication("+CUSD:", handler)
+	a.AddIndication("+CUSD:", handler)
 	hmsg := strings.ToUpper(hex.EncodeToString(gsm7.Pack7BitUSSD([]byte(*msg), 0)))
 	cmd := fmt.Sprintf("+CUSD=1,\"%s\",%d", hmsg, *dcs)
-	_, err = g.Command(cmd)
+	_, err = a.Command(cmd)
 	if err != nil {
 		log.Fatal(err)
 	}
