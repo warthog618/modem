@@ -61,6 +61,19 @@ func WithCollector(c Collector) RxOption {
 	return collectorOption{c}
 }
 
+type initialCmdOption string
+
+func (o initialCmdOption) applyRxOption(c *rxConfig) {
+	c.initialCmd = string(o)
+}
+
+// WithInitialCommand overrides the initial command
+//
+// The default is "+CNMI=1,2,0,0,0"
+func WithInitialCommand(cmd string) RxOption {
+	return initialCmdOption(cmd)
+}
+
 type encoderOption struct {
 	sms.EncoderOption
 }
@@ -295,8 +308,9 @@ type Collector interface {
 }
 
 type rxConfig struct {
-	timeout time.Duration
-	c       Collector
+	timeout    time.Duration
+	c          Collector
+	initialCmd string
 }
 
 // StartMessageRx sets up the modem to receive SMS messages and pass them to
@@ -313,7 +327,10 @@ func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler, options ...RxOp
 	if !g.pduMode {
 		return ErrWrongMode
 	}
-	cfg := rxConfig{timeout: 24 * time.Hour}
+	cfg := rxConfig{
+		timeout:    24 * time.Hour,
+		initialCmd: "+CNMI=1,2,0,0,0",
+	}
 	for _, option := range options {
 		option.applyRxOption(&cfg)
 	}
@@ -356,7 +373,7 @@ func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler, options ...RxOp
 		return err
 	}
 	// tell the modem to forward SMS-DELIVERs via +CMT indications...
-	_, err = g.Command("+CNMI=1,2,0,0,0")
+	_, err = g.Command(cfg.initialCmd)
 	if err != nil {
 		g.CancelIndication("+CMT:")
 	}
