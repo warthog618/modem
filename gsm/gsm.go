@@ -67,10 +67,10 @@ func (o initialCmdOption) applyRxOption(c *rxConfig) {
 	c.initialCmd = string(o)
 }
 
-// WithInitialCommand overrides the initial command
+// WithInitialCmd overrides the initial command
 //
 // The default is "+CNMI=1,2,0,0,0"
-func WithInitialCommand(cmd string) RxOption {
+func WithInitialCmd(cmd string) RxOption {
 	return initialCmdOption(cmd)
 }
 
