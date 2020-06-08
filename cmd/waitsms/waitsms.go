@@ -62,13 +62,17 @@ func main() {
 
 	go pollSignalQuality(g, timeout)
 
-	g.StartMessageRx(
+	err = g.StartMessageRx(
 		func(msg gsm.Message) {
 			log.Printf("%s: %s\n", msg.Number, msg.Message)
 		},
 		func(err error) {
 			log.Printf("err: %v\n", err)
 		})
+	if err != nil {
+		log.Println(err)
+		return
+	}
 	defer g.StopMessageRx()
 
 	for {
