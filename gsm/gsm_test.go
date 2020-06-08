@@ -554,6 +554,7 @@ func TestStartMessageRx(t *testing.T) {
 	require.Equal(t, at.ErrError, err)
 
 	cmdSet["AT+CNMI=1,2,0,0,0\r\n"] = []string{"\r\nOK\r\n"}
+	cmdSet["AT+CSMS=1\r\n"] = []string{"\r\nOK\r\n"}
 
 	// pass
 	err = g.StartMessageRx(mh, eh)
@@ -653,7 +654,9 @@ func TestStartMessageRx(t *testing.T) {
 
 func TestStartMessageRxOptions(t *testing.T) {
 	cmdSet := map[string][]string{
+		"AT+CSMS=1\r\n":         {"\r\nOK\r\n"},
 		"AT+CNMI=1,2,0,0,0\r\n": {"\r\nOK\r\n"},
+		"AT+CNMI=1,2,0,0,1\r\n": {"\r\nOK\r\n"},
 		"AT+CNMA\r\n":           {"\r\nOK\r\n"},
 	}
 
@@ -708,6 +711,12 @@ func TestStartMessageRxOptions(t *testing.T) {
 			mc.err,
 			true,
 		},
+		{
+			"initCmds",
+			[]gsm.RxOption{gsm.WithInitCmds("+CNMI=1,2,0,0,1")},
+			nil,
+			false,
+		},
 	}
 	for _, p := range patterns {
 		f := func(t *testing.T) {
@@ -736,6 +745,7 @@ func TestStartMessageRxOptions(t *testing.T) {
 
 func TestStopMessageRx(t *testing.T) {
 	cmdSet := map[string][]string{
+		"AT+CSMS=1\r\n":         {"\r\nOK\r\n"},
 		"AT+CNMI=1,2,0,0,0\r\n": {"\r\nOK\r\n"},
 		"AT+CNMI=0,0,0,0,0\r\n": {"\r\nOK\r\n"},
 		"AT+CNMA\r\n":           {"\r\nOK\r\n"},

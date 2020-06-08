@@ -124,6 +124,19 @@ func WithReassemblyTimeout(d time.Duration) RxOption {
 	return timeoutOption(d)
 }
 
+type cmdsOption []string
+
+func (o cmdsOption) applyRxOption(c *rxConfig) {
+	c.initCmds = []string(o)
+}
+
+// WithInitCmds overrides the commands required to setup the modem to notify when SMSs are received.
+//
+// The default is {"+CSMS=1","+CNMI=1,2,0,0,0"}
+func WithInitCmds(c ...string) RxOption {
+	return cmdsOption(c)
+}
+
 // Init initialises the GSM modem.
 func (g *GSM) Init(options ...at.InitOption) (err error) {
 	if err = g.AT.Init(options...); err != nil {
@@ -295,8 +308,9 @@ type Collector interface {
 }
 
 type rxConfig struct {
-	timeout time.Duration
-	c       Collector
+	timeout  time.Duration
+	c        Collector
+	initCmds []string
 }
 
 // StartMessageRx sets up the modem to receive SMS messages and pass them to
@@ -313,7 +327,10 @@ func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler, options ...RxOp
 	if !g.pduMode {
 		return ErrWrongMode
 	}
-	cfg := rxConfig{timeout: 24 * time.Hour}
+	cfg := rxConfig{
+		timeout:  24 * time.Hour,
+		initCmds: []string{"+CSMS=1", "+CNMI=1,2,0,0,0"},
+	}
 	for _, option := range options {
 		option.applyRxOption(&cfg)
 	}
@@ -356,11 +373,13 @@ func (g *GSM) StartMessageRx(mh MessageHandler, eh ErrorHandler, options ...RxOp
 		return err
 	}
 	// tell the modem to forward SMS-DELIVERs via +CMT indications...
-	_, err = g.Command("+CNMI=1,2,0,0,0")
-	if err != nil {
-		g.CancelIndication("+CMT:")
+	for _, cmd := range cfg.initCmds {
+		if _, err = g.Command(cmd); err != nil {
+			g.CancelIndication("+CMT:")
+			return err
+		}
 	}
-	return err
+	return nil
 }
 
 // StopMessageRx ends the reception of messages started by StartMessageRx,
