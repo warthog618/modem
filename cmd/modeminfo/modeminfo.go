@@ -72,7 +72,12 @@ func main() {
 		"+CNMI?",
 		"+CNMI=?",
 		"+CNMA=?",
+		"+CMGF?",
 		"+CMGF=?",
+		"+CUSD?",
+		"+CUSD=?",
+		"^USSDMODE?",
+		"^USSDMODE=?",
 	}
 	for _, cmd := range cmds {
 		info, err := a.Command(cmd)
