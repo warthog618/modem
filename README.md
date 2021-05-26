@@ -4,8 +4,8 @@ A low level Go driver for AT modems.
 
 [![Build Status](https://travis-ci.org/warthog618/modem.svg)](https://travis-ci.org/warthog618/modem)
 [![Coverage Status](https://coveralls.io/repos/github/warthog618/modem/badge.svg?branch=master)](https://coveralls.io/github/warthog618/modem?branch=master)
-[![Go Report Card](https://goreportcard.com/badge/github.com/warthog618/modem)](https://goreportcard.com/report/github.com/warthog618/modem)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/warthog618/modem/blob/master/LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/vasjaj/modem)](https://goreportcard.com/report/github.com/vasjaj/modem)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/vasjaj/modem/blob/master/LICENSE)
 
 modem is a Go library for interacting with AT based modems.
 
@@ -96,8 +96,8 @@ For more information, refer to package documentation, tests and example commands
 
 Package | Documentation | Tests | Example code
 ------- | ------------- | ----- | ------------
-[at](at) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/at) | [at_test](at/at_test.go) | [modeminfo](cmd/modeminfo/modeminfo.go)
-[gsm](gsm) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/gsm) | [gsm_test](gsm/gsm_test.go) | [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
-[info](info) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/info) | [info_test](info/info_test.go) | [phonebook](cmd/phonebook/phonebook.go)
-[serial](serial) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/serial) | [serial_test](serial/serial_test.go) | [modeminfo](cmd/modeminfo/modeminfo.go), [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
-[trace](trace) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/trace) | [trace_test](trace/trace_test.go) | [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
+[at](at) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/vasjaj/modem/at) | [at_test](at/at_test.go) | [modeminfo](cmd/modeminfo/modeminfo.go)
+[gsm](gsm) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/vasjaj/modem/gsm) | [gsm_test](gsm/gsm_test.go) | [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
+[info](info) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/vasjaj/modem/info) | [info_test](info/info_test.go) | [phonebook](cmd/phonebook/phonebook.go)
+[serial](serial) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/vasjaj/modem/serial) | [serial_test](serial/serial_test.go) | [modeminfo](cmd/modeminfo/modeminfo.go), [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
+[trace](trace) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/vasjaj/modem/trace) | [trace_test](trace/trace_test.go) | [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)

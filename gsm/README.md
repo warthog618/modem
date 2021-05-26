@@ -3,10 +3,10 @@
 A high level Go driver for GSM modems.
 
 [![Build Status](https://travis-ci.org/warthog618/modem.svg)](https://travis-ci.org/warthog618/modem)
-[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/gsm)
+[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/vasjaj/modem/gsm)
 [![Coverage Status](https://coveralls.io/repos/github/warthog618/modem/badge.svg?branch=master)](https://coveralls.io/github/warthog618/modem?branch=master)
-[![Go Report Card](https://goreportcard.com/badge/github.com/warthog618/modem)](https://goreportcard.com/report/github.com/warthog618/modem)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/warthog618/modem/blob/master/LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/vasjaj/modem)](https://goreportcard.com/report/github.com/vasjaj/modem)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/vasjaj/modem/blob/master/LICENSE)
 
 The **gsm** package provides a wrapper around [**at**](../at) that supports sending and receiving SMS messages, including long multi-part messages.
 

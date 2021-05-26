@@ -17,11 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/warthog618/modem/at"
-	"github.com/warthog618/modem/gsm"
-	"github.com/warthog618/modem/info"
-	"github.com/warthog618/modem/serial"
-	"github.com/warthog618/modem/trace"
+	"github.com/vasjaj/modem/at"
+	"github.com/vasjaj/modem/gsm"
+	"github.com/vasjaj/modem/info"
+	"github.com/vasjaj/modem/serial"
+	"github.com/vasjaj/modem/trace"
 )
 
 var version = "undefined"

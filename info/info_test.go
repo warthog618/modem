@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/warthog618/modem/info"
+	"github.com/vasjaj/modem/info"
 )
 
 func TestHasPrefix(t *testing.T) {
