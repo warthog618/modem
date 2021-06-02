@@ -8,7 +8,7 @@
 // This provides an example of using indications, as well as a test that the
 // library works with the modem.
 //
-// The modem device provided must support nofications, or no SMSs will be seen.
+// The modem device provided must support notifications or no SMSs will be seen.
 // (the notification port is typically USB2, hence the default)
 package main
 
