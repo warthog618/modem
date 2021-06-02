@@ -36,6 +36,11 @@ import (
 
 var debug = false // set to true to enable tracing of the flow to the mockModem.
 
+const (
+	sub = "\x1a"
+	esc = "\x1b"
+)
+
 func TestNew(t *testing.T) {
 	mm := mockModem{cmdSet: nil, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
@@ -78,9 +83,9 @@ func TestInit(t *testing.T) {
 	// mocked
 	cmdSet := map[string][]string{
 		// for init (AT)
-		string(27) + "\r\n\r\n": {"\r\n"},
-		"ATZ\r\n":               {"OK\r\n"},
-		"ATE0\r\n":              {"OK\r\n"},
+		esc + "\r\n\r\n": {"\r\n"},
+		"ATZ\r\n":        {"OK\r\n"},
+		"ATE0\r\n":       {"OK\r\n"},
 		// for init (GSM)
 		"AT+CMEE=2\r\n": {"OK\r\n"},
 		"AT+CMGF=1\r\n": {"OK\r\n"},
@@ -232,12 +237,12 @@ func TestInit(t *testing.T) {
 func TestSendShortMessage(t *testing.T) {
 	// mocked
 	cmdSet := map[string][]string{
-		"AT+CMGS=\"+123456789\"\r":        {"\n>"},
-		"AT+CMGS=23\r":                    {"\n>"},
-		"test message" + string(26):       {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
-		"cruft test message" + string(26): {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
-		"000101099121436587f900000cf4f29c0e6a97e7f3f0b90c" + string(26): {"\r\n", "+CMGS: 44\r\n", "\r\nOK\r\n"},
-		"malformed test message" + string(26):                           {"\r\n", "pad\r\n", "\r\nOK\r\n"},
+		"AT+CMGS=\"+123456789\"\r": {"\n>"},
+		"AT+CMGS=23\r":             {"\n>"},
+		"test message" + sub:       {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
+		"cruft test message" + sub: {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
+		"000101099121436587f900000cf4f29c0e6a97e7f3f0b90c" + sub: {"\r\n", "+CMGS: 44\r\n", "\r\nOK\r\n"},
+		"malformed test message" + sub:                           {"\r\n", "pad\r\n", "\r\nOK\r\n"},
 	}
 	patterns := []struct {
 		name     string
@@ -352,9 +357,9 @@ func TestSendLongMessage(t *testing.T) {
 		"AT+CMGS=152\r": {"\n>"},
 		"AT+CMGS=47\r":  {"\n>"},
 		"AT+CMGS=32\r":  {"\r\n", "pad\r\n", "\r\nOK\r\n"},
-		"000101099121436587f900000cf4f29c0e6a97e7f3f0b90c" + string(26): {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
-		"004101099121436587f90000a0050003010201c2207b599e07b1dfee33885e9ed341edf27c1e3e97417474980ebaa7d96c90fb4d0799d374d03d4d47a7dda0b7bb0c9a36a72028b10a0acf41693a283d07a9eb733a88fe7e83d86ff719647ecb416f771904255641657bd90dbaa7e968d071da0495dde33739ed3eb34074f4bb7e4683f2ef3a681c7683cc693aa8fd9697416937e8ed2e83a0" + string(26): {"\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
-		"004102099121436587f90000270500030102028855101d1d7683f2ef3aa81dce83d2ee343d1d66b3f3a0321e5e1ed301" + string(26): {"\r\n", "+CMGS: 44\r\n", "\r\nOK\r\n"},
+		"000101099121436587f900000cf4f29c0e6a97e7f3f0b90c" + sub: {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
+		"004101099121436587f90000a0050003010201c2207b599e07b1dfee33885e9ed341edf27c1e3e97417474980ebaa7d96c90fb4d0799d374d03d4d47a7dda0b7bb0c9a36a72028b10a0acf41693a283d07a9eb733a88fe7e83d86ff719647ecb416f771904255641657bd90dbaa7e968d071da0495dde33739ed3eb34074f4bb7e4683f2ef3a681c7683cc693aa8fd9697416937e8ed2e83a0" + sub: {"\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
+		"004102099121436587f90000270500030102028855101d1d7683f2ef3aa81dce83d2ee343d1d66b3f3a0321e5e1ed301" + sub: {"\r\n", "+CMGS: 44\r\n", "\r\nOK\r\n"},
 	}
 	patterns := []struct {
 		name     string
@@ -457,10 +462,10 @@ func TestSendLongMessage(t *testing.T) {
 func TestSendPDU(t *testing.T) {
 	// mocked
 	cmdSet := map[string][]string{
-		"AT+CMGS=6\r":                 {"\n>"},
-		"00010203040506" + string(26): {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
-		"00110203040506" + string(26): {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
-		"00210203040506" + string(26): {"\r\n", "pad\r\n", "\r\nOK\r\n"},
+		"AT+CMGS=6\r":          {"\n>"},
+		"00010203040506" + sub: {"\r\n", "+CMGS: 42\r\n", "\r\nOK\r\n"},
+		"00110203040506" + sub: {"\r\n", "pad\r\n", "+CMGS: 43\r\n", "\r\nOK\r\n"},
+		"00210203040506" + sub: {"\r\n", "pad\r\n", "\r\nOK\r\n"},
 	}
 	patterns := []struct {
 		name    string

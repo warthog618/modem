@@ -25,6 +25,11 @@ import (
 	"github.com/warthog618/modem/trace"
 )
 
+const (
+	sub = "\x1a"
+	esc = "\x1b"
+)
+
 func TestNew(t *testing.T) {
 	patterns := []struct {
 		name    string
@@ -60,12 +65,12 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestWithEscTime(t *testing.T) {
+func TestWithescTime(t *testing.T) {
 	cmdSet := map[string][]string{
 		// for init
-		string(27) + "\r\n\r\n": {"\r\n"},
-		"ATZ\r\n":               {"OK\r\n"},
-		"ATE0\r\n":              {"OK\r\n"},
+		esc + "\r\n\r\n": {"\r\n"},
+		"ATZ\r\n":        {"OK\r\n"},
+		"ATE0\r\n":       {"OK\r\n"},
 	}
 	patterns := []struct {
 		name    string
@@ -103,10 +108,10 @@ func TestWithEscTime(t *testing.T) {
 func TestWithCmds(t *testing.T) {
 	cmdSet := map[string][]string{
 		// for init
-		string(27) + "\r\n\r\n": {"\r\n"},
-		"ATZ\r\n":               {"OK\r\n"},
-		"ATE0\r\n":              {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
+		esc + "\r\n\r\n": {"\r\n"},
+		"ATZ\r\n":        {"OK\r\n"},
+		"ATE0\r\n":       {"OK\r\n"},
+		"AT^CURC=0\r\n":  {"OK\r\n"},
 	}
 	patterns := []struct {
 		name    string
@@ -143,10 +148,10 @@ func TestInit(t *testing.T) {
 	// mocked
 	cmdSet := map[string][]string{
 		// for init
-		string(27) + "\r\n\r\n": {"\r\n"},
-		"ATZ\r\n":               {"OK\r\n"},
-		"ATE0\r\n":              {"OK\r\n"},
-		"AT^CURC=0\r\n":         {"OK\r\n"},
+		esc + "\r\n\r\n": {"\r\n"},
+		"ATZ\r\n":        {"OK\r\n"},
+		"ATE0\r\n":       {"OK\r\n"},
+		"AT^CURC=0\r\n":  {"OK\r\n"},
 	}
 	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
@@ -178,9 +183,9 @@ func TestInit(t *testing.T) {
 func TestInitFailure(t *testing.T) {
 	cmdSet := map[string][]string{
 		// for init
-		string(27) + "\r\n\r\n": {"\r\n"},
-		"ATZ\r\n":               {"ERROR\r\n"},
-		"ATE0\r\n":              {"OK\r\n"},
+		esc + "\r\n\r\n": {"\r\n"},
+		"ATZ\r\n":        {"ERROR\r\n"},
+		"ATE0\r\n":       {"OK\r\n"},
 	}
 	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
@@ -202,8 +207,8 @@ func TestInitFailure(t *testing.T) {
 func TestCloseInInitTimeout(t *testing.T) {
 	cmdSet := map[string][]string{
 		// for init
-		string(27) + "\r\n\r\n": {"\r\n"},
-		"ATZ\r\n":               {""},
+		esc + "\r\n\r\n": {"\r\n"},
+		"ATZ\r\n":        {""},
 	}
 	mm := mockModem{cmdSet: cmdSet, echo: false, r: make(chan []byte, 10)}
 	defer teardownModem(&mm)
@@ -424,12 +429,12 @@ func TestCommandClosedPreWrite(t *testing.T) {
 
 func TestSMSCommand(t *testing.T) {
 	cmdSet := map[string][]string{
-		"ATCMS\r":           {"\r\n+CMS ERROR: 204\r\n"},
-		"ATCME\r":           {"\r\n+CME ERROR: 42\r\n"},
-		"ATSMS\r":           {"\n>"},
-		"ATSMS2\r":          {"\n> "},
-		"info" + string(26): {"\r\n", "info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
-		"sms+" + string(26): {"\r\n", "info4\r\n", "info5\r\n", "INFO: info6\r\n", "\r\n", "OK\r\n"},
+		"ATCMS\r":    {"\r\n+CMS ERROR: 204\r\n"},
+		"ATCME\r":    {"\r\n+CME ERROR: 42\r\n"},
+		"ATSMS\r":    {"\n>"},
+		"ATSMS2\r":   {"\n> "},
+		"info" + sub: {"\r\n", "info1\r\n", "info2\r\n", "INFO: info3\r\n", "\r\n", "OK\r\n"},
+		"sms+" + sub: {"\r\n", "info4\r\n", "info5\r\n", "INFO: info6\r\n", "\r\n", "OK\r\n"},
 	}
 	m, mm := setupModem(t, cmdSet)
 	defer teardownModem(mm)

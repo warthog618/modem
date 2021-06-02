@@ -119,8 +119,8 @@ func New(modem io.ReadWriter, options ...Option) *AT {
 }
 
 const (
-	sub = 0x1a
-	esc = 0x1b
+	sub = "\x1a"
+	esc = "\x1b"
 )
 
 // WithEscTime sets the guard time for the modem.
@@ -421,7 +421,7 @@ func (a *AT) indLoop(cmds chan func(), in <-chan string, out chan string) {
 //
 // This should only be called from within the cmdLoop.
 func (a *AT) escape(b ...byte) {
-	cmd := append([]byte(string(esc)+"\r\n"), b...)
+	cmd := append([]byte(esc+"\r\n"), b...)
 	a.modem.Write(cmd)
 	a.escGuard = time.NewTimer(a.escTime)
 }
@@ -549,7 +549,7 @@ func (a *AT) processRxLine(lt rxl, line string) (info *string, done bool, err er
 func (a *AT) processSmsRxLine(lt rxl, line string, sms string) (info *string, done bool, err error) {
 	switch lt {
 	case rxlUnknown:
-		if line[len(line)-1] == sub && strings.HasPrefix(line, sms) {
+		if strings.HasSuffix(line, sub) && strings.HasPrefix(line, sms) {
 			// swallow echoed SMS PDU
 			return
 		}
@@ -814,7 +814,6 @@ type commandConfig struct {
 }
 
 type initConfig struct {
-	timeout time.Duration
 	cmds    []string
 	cmdOpts []CommandOption
 }
