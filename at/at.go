@@ -766,6 +766,8 @@ func parseRxLine(line string, cmdID string) rxl {
 	switch {
 	case line == "OK" || line == "SEND OK":
 		return rxlStatusOK
+	case strings.HasPrefix(line, "CONNECT"):
+		return rxlConnect
 	case strings.HasPrefix(line, "ERROR"),
 		strings.HasPrefix(line, "+CME ERROR:"),
 		strings.HasPrefix(line, "+CMS ERROR:"):
@@ -781,8 +783,6 @@ func parseRxLine(line string, cmdID string) rxl {
 		// No attempt to identify SMS PDUs at this level, so they will
 		// be caught here, along with other unidentified lines.
 		return rxlUnknown
-	case strings.HasPrefix(line, "CONNECT"):
-		return rxlConnect
 	case line == "BUSY",
 		line == "NO ANSWER",
 		line == "NO CARRIER",
