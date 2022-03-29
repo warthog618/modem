@@ -764,7 +764,7 @@ func parseCmdID(cmdLine string) string {
 // parseRxLine parses a received line and identifies the line type.
 func parseRxLine(line string, cmdID string) rxl {
 	switch {
-	case line == "OK" || line == "SEND OK":
+	case line == "OK" || line == "SEND OK" || line == "CONNECT":
 		return rxlStatusOK
 	case strings.HasPrefix(line, "ERROR"),
 		strings.HasPrefix(line, "+CME ERROR:"),
