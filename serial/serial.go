@@ -8,6 +8,7 @@ package serial
 
 import (
 	"github.com/tarm/serial"
+	"time"
 )
 
 // New creates a serial port.
@@ -18,7 +19,8 @@ func New(options ...Option) (*serial.Port, error) {
 	for _, option := range options {
 		option.applyConfig(&cfg)
 	}
-	config := serial.Config{Name: cfg.port, Baud: cfg.baud}
+
+	config := serial.Config{Name: cfg.port, Baud: cfg.baud, ReadTimeout: cfg.ReadTimeout}
 	p, err := serial.OpenPort(&config)
 	if err != nil {
 		return nil, err
@@ -36,6 +38,11 @@ func WithPort(p string) Port {
 	return Port(p)
 }
 
+// WithTimeout specifies read timeout the serial port.
+func WithTimeout(t time.Duration) ReadTimeout {
+	return ReadTimeout(t)
+}
+
 // Option is a construction option that modifies the behaviour of the serial port.
 type Option interface {
 	applyConfig(*Config)
@@ -45,6 +52,7 @@ type Option interface {
 type Config struct {
 	port string
 	baud int
+	ReadTimeout time.Duration // Total timeout
 }
 
 // Baud is the bit rate for the serial line.
@@ -59,4 +67,10 @@ type Port string
 
 func (p Port) applyConfig(c *Config) {
 	c.port = string(p)
+}
+
+type ReadTimeout time.Duration
+
+func (t ReadTimeout) applyConfig(c *Config) {
+	c.ReadTimeout = time.Duration(t)
 }
