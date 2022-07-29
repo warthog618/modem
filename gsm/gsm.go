@@ -162,7 +162,7 @@ func (g *GSM) Init(options ...at.InitOption) (err error) {
 	}
 	cmds := []string{
 		"+CMGF=1", // text mode
-		"+CMEE=2", // textual errors
+		"+CMEE=1", // textual errors
 	}
 	if g.pduMode {
 		cmds[0] = "+CMGF=0" // pdu mode
