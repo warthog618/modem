@@ -1,9 +1,8 @@
 language: go
 
 go:
-  - "1.x"
   - "1.13"
-  - tip
+  - "1.17"
 
 os:
   - linux
