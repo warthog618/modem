@@ -22,9 +22,10 @@ import (
 // GSM modem decorates the AT modem with GSM specific functionality.
 type GSM struct {
 	*at.AT
-	sca     pdumode.SMSCAddress
-	pduMode bool
-	eOpts   []sms.EncoderOption
+	sca           pdumode.SMSCAddress
+	pduMode       bool
+	textualErrors bool
+	eOpts         []sms.EncoderOption
 }
 
 // Option is a construction option for the GSM.
@@ -39,7 +40,7 @@ type RxOption interface {
 
 // New creates a new GSM modem.
 func New(a *at.AT, options ...Option) *GSM {
-	g := GSM{AT: a, pduMode: true}
+	g := GSM{AT: a, pduMode: true, textualErrors: true}
 	for _, option := range options {
 		option.applyOption(&g)
 	}
@@ -91,6 +92,22 @@ var WithPDUMode = pduModeOption(true)
 //
 // This overrides is the default PDU mode.
 var WithTextMode = pduModeOption(false)
+
+type textualErrorsOption bool
+
+func (o textualErrorsOption) applyOption(g *GSM) {
+	g.textualErrors = bool(o)
+}
+
+// WithTextualErrors specifies that the modem should return textual errors rather than numeric.
+//
+// This is the default mode.
+var WithTextualErrors = textualErrorsOption(true)
+
+// WithNumericErrors specifies that the modem  should return numeric errors rather than textual.
+//
+// This overrides is the default textual mode.
+var WithNumericErrors = textualErrorsOption(false)
 
 type scaOption pdumode.SMSCAddress
 
@@ -166,6 +183,9 @@ func (g *GSM) Init(options ...at.InitOption) (err error) {
 	}
 	if g.pduMode {
 		cmds[0] = "+CMGF=0" // pdu mode
+	}
+	if !g.textualErrors {
+		cmds[1] = "+CMEE=1" // numeric errors
 	}
 	for _, cmd := range cmds {
 		_, err = g.Command(cmd)

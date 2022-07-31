@@ -65,6 +65,16 @@ func TestNew(t *testing.T) {
 			[]gsm.Option{gsm.WithTextMode},
 			true,
 		},
+		{
+			"WithNumericErrors",
+			[]gsm.Option{gsm.WithNumericErrors},
+			true,
+		},
+		{
+			"WithTextualErrors",
+			[]gsm.Option{gsm.WithTextualErrors},
+			true,
+		},
 	}
 	for _, p := range patterns {
 		f := func(t *testing.T) {
@@ -88,6 +98,7 @@ func TestInit(t *testing.T) {
 		"ATE0\r\n":       {"OK\r\n"},
 		// for init (GSM)
 		"AT+CMEE=2\r\n": {"OK\r\n"},
+		"AT+CMEE=1\r\n": {"OK\r\n"},
 		"AT+CMGF=1\r\n": {"OK\r\n"},
 		"AT+GCAP\r\n":   {"+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"},
 	}
@@ -97,7 +108,7 @@ func TestInit(t *testing.T) {
 		residual []byte
 		key      string
 		value    []string
-		textMode bool
+		gopts    []gsm.Option
 		err      error
 	}{
 		{
@@ -106,7 +117,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"",
 			nil,
-			true,
+			[]gsm.Option{gsm.WithTextMode},
 			nil,
 		},
 		{
@@ -115,7 +126,7 @@ func TestInit(t *testing.T) {
 			[]byte("\r\nOK\r\nOK\r\n"),
 			"",
 			nil,
-			true,
+			[]gsm.Option{gsm.WithTextMode},
 			nil,
 		},
 		{
@@ -124,7 +135,7 @@ func TestInit(t *testing.T) {
 			[]byte("\r\nERROR\r\nERROR\r\n"),
 			"",
 			nil,
-			true,
+			[]gsm.Option{gsm.WithTextMode},
 			nil,
 		},
 		{
@@ -133,16 +144,25 @@ func TestInit(t *testing.T) {
 			nil,
 			"AT+GCAP\r\n",
 			[]string{"cruft\r\n", "+GCAP: +CGSM,+DS,+ES\r\n", "OK\r\n"},
-			true,
+			[]gsm.Option{gsm.WithTextMode},
 			nil,
 		},
 		{
-			"CMEE error",
+			"CMEE textual error",
 			nil,
 			nil,
 			"AT+CMEE=2\r\n",
 			[]string{"ERROR\r\n"},
-			true,
+			[]gsm.Option{gsm.WithTextMode},
+			at.ErrError,
+		},
+		{
+			"CMEE numeric error",
+			nil,
+			nil,
+			"AT+CMEE=1\r\n",
+			[]string{"ERROR\r\n"},
+			[]gsm.Option{gsm.WithTextMode, gsm.WithNumericErrors},
 			at.ErrError,
 		},
 		{
@@ -151,7 +171,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"AT+GCAP\r\n",
 			[]string{"ERROR\r\n"},
-			true,
+			[]gsm.Option{gsm.WithTextMode},
 			at.ErrError,
 		},
 		{
@@ -160,7 +180,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"AT+GCAP\r\n",
 			[]string{"+GCAP: +DS,+ES\r\n", "OK\r\n"},
-			true,
+			[]gsm.Option{gsm.WithTextMode},
 			gsm.ErrNotGSMCapable,
 		},
 		{
@@ -169,7 +189,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"ATZ\r\n",
 			[]string{"ERROR\r\n"},
-			true,
+			[]gsm.Option{gsm.WithTextMode},
 			fmt.Errorf("ATZ returned error: %w", at.ErrError),
 		},
 		{
@@ -178,7 +198,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"",
 			nil,
-			false,
+			[]gsm.Option{gsm.WithPDUMode},
 			at.ErrDeadlineExceeded,
 		},
 		{
@@ -187,7 +207,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"",
 			nil,
-			false,
+			[]gsm.Option{gsm.WithPDUMode},
 			at.ErrError,
 		},
 		{
@@ -196,7 +216,7 @@ func TestInit(t *testing.T) {
 			nil,
 			"AT+CMGF=0\r\n",
 			[]string{"OK\r\n"},
-			false,
+			[]gsm.Option{gsm.WithPDUMode},
 			nil,
 		},
 	}
@@ -210,11 +230,7 @@ func TestInit(t *testing.T) {
 			}
 			defer teardownModem(&mm)
 			a := at.New(&mm)
-			gopts := []gsm.Option{}
-			if p.textMode {
-				gopts = append(gopts, gsm.WithTextMode)
-			}
-			g := gsm.New(a, gopts...)
+			g := gsm.New(a, p.gopts...)
 			require.NotNil(t, g)
 			var oldvalue []string
 			if p.residual != nil {
