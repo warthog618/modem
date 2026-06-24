@@ -7,19 +7,19 @@
 package serial
 
 import (
-	"github.com/tarm/serial"
+	"go.bug.st/serial"
 )
 
 // New creates a serial port.
 //
-// This is currently a simple wrapper around tarm serial.
-func New(options ...Option) (*serial.Port, error) {
+// This is currently a simple wrapper around go.bug.st/serial.
+func New(options ...Option) (serial.Port, error) {
 	cfg := defaultConfig
 	for _, option := range options {
 		option.applyConfig(&cfg)
 	}
-	config := serial.Config{Name: cfg.port, Baud: cfg.baud}
-	p, err := serial.OpenPort(&config)
+	mode := serial.Mode{BaudRate: cfg.baud, DataBits: 8, Parity: serial.NoParity, StopBits: serial.OneStopBit}
+	p, err := serial.Open(cfg.port, &mode)
 	if err != nil {
 		return nil, err
 	}

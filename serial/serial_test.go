@@ -5,12 +5,12 @@
 package serial_test
 
 import (
-	"errors"
 	"os"
 	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/warthog618/modem/serial"
 )
 
@@ -21,6 +21,7 @@ func modemExists(name string) func(t *testing.T) {
 		}
 	}
 }
+
 func TestNew(t *testing.T) {
 	patterns := []struct {
 		name    string
@@ -56,13 +57,7 @@ func TestNew(t *testing.T) {
 			"bad port",
 			nil,
 			[]serial.Option{serial.WithPort("nosuchmodem")},
-			&os.PathError{Op: "open", Path: "nosuchmodem", Err: syscall.Errno(2)},
-		},
-		{
-			"bad baud",
-			modemExists("/dev/ttyUSB0"),
-			[]serial.Option{serial.WithBaud(1234)},
-			errors.New("Unrecognized baud rate"),
+			syscall.Errno(2),
 		},
 	}
 	for _, p := range patterns {
