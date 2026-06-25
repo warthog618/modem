@@ -57,7 +57,7 @@ The [at](at) package allows you to issue commands to the modem and receive the
 response. e.g.:
 
 ```go
-modem := at.New(ioWR)
+modem := at.New(ioRW)
 info, err := modem.Command("I")
 ```
 
