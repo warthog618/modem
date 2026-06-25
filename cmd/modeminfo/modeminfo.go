@@ -17,8 +17,9 @@ import (
 	"os"
 	"time"
 
+	"go.bug.st/serial"
+
 	"github.com/warthog618/modem/at"
-	"github.com/warthog618/modem/serial"
 	"github.com/warthog618/modem/trace"
 )
 
@@ -35,7 +36,7 @@ func main() {
 		fmt.Printf("%s %s\n", os.Args[0], version)
 		os.Exit(0)
 	}
-	m, err := serial.New(serial.WithPort(*dev), serial.WithBaud(*baud))
+	m, err := serial.Open(*dev, &serial.Mode{BaudRate: *baud})
 	if err != nil {
 		log.Println(err)
 		return
