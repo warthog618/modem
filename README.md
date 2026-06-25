@@ -31,9 +31,6 @@ parts, without any knowledge of the underlying AT commands.
 The [info](info) package provides utility functions to manipulate the info
 returned in the responses from the modem.
 
-The [serial](serial) package provides a simple wrapper around a third party
-serial driver, so you don't have to find one yourself.
-
 The [trace](trace) package provides a driver, which may be inserted between the
 AT driver and the underlying modem, to log interactions with the modem for
 debugging purposes.
@@ -99,5 +96,4 @@ Package | Documentation | Tests | Example code
 [at](at) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/at) | [at_test](at/at_test.go) | [modeminfo](cmd/modeminfo/modeminfo.go)
 [gsm](gsm) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/gsm) | [gsm_test](gsm/gsm_test.go) | [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
 [info](info) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/info) | [info_test](info/info_test.go) | [phonebook](cmd/phonebook/phonebook.go)
-[serial](serial) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/serial) | [serial_test](serial/serial_test.go) | [modeminfo](cmd/modeminfo/modeminfo.go), [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
 [trace](trace) | [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/warthog618/modem/trace) | [trace_test](trace/trace_test.go) | [sendsms](cmd/sendsms/sendsms.go), [waitsms](cmd/waitsms/waitsms.go)
