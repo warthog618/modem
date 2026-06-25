@@ -80,7 +80,7 @@ type Option interface {
 	applyOption(*AT)
 }
 
-// CommandOption defines a behaviouralk option for Command and SMSCommand.
+// CommandOption defines a behavioural option for Command and SMSCommand.
 type CommandOption interface {
 	applyCommandOption(*commandConfig)
 }
@@ -317,12 +317,12 @@ func (a *AT) Init(options ...InitOption) error {
 //
 // An SMS command is issued in two steps; first the command line:
 //
-//   AT<command><CR>
+//	AT<command><CR>
 //
 // which the modem responds to with a ">" prompt, after which the SMS PDU is
 // sent to the modem:
 //
-//   <sms><Ctrl-Z>
+//	<sms><Ctrl-Z>
 //
 // The modem then completes the command as per other commands, such as those
 // issued by Command.
@@ -519,9 +519,9 @@ func (a *AT) processSmsReq(cmd string, sms string, timeout time.Duration) (info 
 // adds to the response for the current command.
 //
 // The return values are:
-//  - a line of info to be added to the response (optional)
-//  - a flag indicating if the command is complete.
-//  - an error detected while processing the command.
+//   - a line of info to be added to the response (optional)
+//   - a flag indicating if the command is complete.
+//   - an error detected while processing the command.
 func (a *AT) processRxLine(lt rxl, line string) (info *string, done bool, err error) {
 	switch lt {
 	case rxlStatusOK:
@@ -543,9 +543,9 @@ func (a *AT) processRxLine(lt rxl, line string) (info *string, done bool, err er
 // adds to the response for the current command.
 //
 // The return values are:
-//  - a line of info to be added to the response (optional)
-//  - a flag indicating if the command is complete.
-//  - an error detected while processing the command.
+//   - a line of info to be added to the response (optional)
+//   - a flag indicating if the command is complete.
+//   - an error detected while processing the command.
 func (a *AT) processSmsRxLine(lt rxl, line string, sms string) (info *string, done bool, err error) {
 	switch lt {
 	case rxlUnknown:
@@ -739,7 +739,7 @@ func (o TrailingLinesOption) applyIndicationOption(ind *Indication) {
 }
 
 // WithTrailingLines indicates the number of lines after the line containing
-// the indication that arew to be collected as part of the indication.
+// the indication that are to be collected as part of the indication.
 //
 // The default is 0 - only the indication line itself is collected and returned.
 func WithTrailingLines(l int) TrailingLinesOption {

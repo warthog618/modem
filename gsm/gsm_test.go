@@ -24,14 +24,15 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/warthog618/modem/at"
-	"github.com/warthog618/modem/gsm"
-	"github.com/warthog618/modem/trace"
 	"github.com/warthog618/sms"
 	"github.com/warthog618/sms/encoding/pdumode"
 	"github.com/warthog618/sms/encoding/semioctet"
 	"github.com/warthog618/sms/encoding/tpdu"
 	"github.com/warthog618/sms/encoding/ucs2"
+
+	"github.com/warthog618/modem/at"
+	"github.com/warthog618/modem/gsm"
+	"github.com/warthog618/modem/trace"
 )
 
 var debug = false // set to true to enable tracing of the flow to the mockModem.
